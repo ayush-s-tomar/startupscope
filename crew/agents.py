@@ -1,5 +1,5 @@
 from crewai import Agent, LLM
-from tools.search_tool import get_search_tool
+from tools.search_tool import get_search_tool as search
 from dotenv import load_dotenv
 import os
 
@@ -23,7 +23,7 @@ def get_researcher():
             "You are an expert startup analyst who has spent 10 years researching "
             "tech companies for venture capital firms."
         ),
-        tools=[get_search_tool()],
+        tools=[search],
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
