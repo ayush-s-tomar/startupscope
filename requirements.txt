@@ -5,3 +5,4 @@ streamlit
 python-dotenv
 litellm
 tiktoken==0.7.0 --only-binary :all:
+litellm==1.57.4
