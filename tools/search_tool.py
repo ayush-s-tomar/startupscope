@@ -1,4 +1,4 @@
-from crewai_tools import tool
+from crewai.tools import tool
 import requests
 import os
 from dotenv import load_dotenv
