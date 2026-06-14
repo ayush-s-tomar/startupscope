@@ -1,17 +1,17 @@
 from crewai import Agent, LLM
-from tools.search_tool import get_search_tool as search
+from tools.search_tool import get_search_tool
 from dotenv import load_dotenv
 import os
-
+ 
 load_dotenv()
-
+ 
 def get_llm():
     return LLM(
-       model="groq/llama-3.3-70b-versatile",
+        model="groq/llama-3.3-70b-versatile",
         api_key=os.getenv("GROQ_API_KEY"),
         temperature=0.3
     )
-
+ 
 def get_researcher():
     return Agent(
         role="Startup Research Specialist",
@@ -23,13 +23,13 @@ def get_researcher():
             "You are an expert startup analyst who has spent 10 years researching "
             "tech companies for venture capital firms."
         ),
-        tools=[search],
+        tools=[get_search_tool],
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
         max_iter=5
     )
-
+ 
 def get_analyst():
     return Agent(
         role="Business Intelligence Analyst",
@@ -45,7 +45,7 @@ def get_analyst():
         allow_delegation=False,
         max_iter=3
     )
-
+ 
 def get_writer():
     return Agent(
         role="Intelligence Report Writer",
@@ -61,3 +61,4 @@ def get_writer():
         allow_delegation=False,
         max_iter=3
     )
+ 
