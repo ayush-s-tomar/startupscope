@@ -27,7 +27,7 @@ def get_researcher():
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
-        max_iter=5
+        max_iter=3
     )
  
 def get_analyst():
@@ -43,7 +43,7 @@ def get_analyst():
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
-        max_iter=3
+        max_iter=2
     )
  
 def get_writer():
@@ -59,6 +59,6 @@ def get_writer():
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
-        max_iter=3
+        max_iter=2
     )
  
