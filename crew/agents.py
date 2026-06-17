@@ -1,6 +1,6 @@
 import streamlit as st
 import threading
-from crew.crew import run_crew
+
 
 st.set_page_config(
     page_title="StartupScope",
