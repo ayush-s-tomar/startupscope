@@ -3,7 +3,7 @@ from crewai import Task
 def get_research_task(agent, company_name: str):
     return Task(
         description=f"""
-        Research the company: {company_name}
+        Research the company: {company_name}. Search specifically for "{company_name} company startup profile funding".
         Gather:
         1. What the company does (product/service)
         2. Founded year, HQ, team size
