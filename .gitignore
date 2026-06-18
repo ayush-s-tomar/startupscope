@@ -5,3 +5,4 @@ __pycache__/
 outputs/
 *.db
 .DS_Store
+outputs/history.json
