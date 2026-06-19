@@ -6,7 +6,8 @@ from theme import inject_theme
 st.set_page_config(
     page_title="StartupScope",
     page_icon="🔍",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # ── THEME BOOTSTRAP ──

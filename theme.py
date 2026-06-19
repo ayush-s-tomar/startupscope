@@ -256,6 +256,37 @@ SHARED_CSS = """
         padding: 0.4rem 0.8rem !important;
     }
 
+    /* ── Radio buttons ── */
+    .stRadio label {
+        color: var(--ink-dim) !important;
+    }
+    .stRadio > div {
+        background-color: transparent !important;
+    }
+    .stRadio [data-testid="stMarkdownContainer"] p {
+        color: var(--ink-dim) !important;
+        font-size: 0.9rem !important;
+    }
+    .stRadio [aria-checked="true"] + div p {
+        color: var(--ink) !important;
+        font-weight: 600 !important;
+    }
+    .stRadio [data-baseweb="radio"] [role="radio"] {
+        border-color: var(--panel-border) !important;
+        background-color: var(--panel) !important;
+    }
+    .stRadio [data-baseweb="radio"] [role="radio"][aria-checked="true"] {
+        border-color: var(--accent) !important;
+        background-color: var(--accent) !important;
+    }
+    /* Sidebar text */
+    section[data-testid="stSidebar"] .stCaption {
+        color: var(--ink-faint) !important;
+    }
+    section[data-testid="stSidebar"] h3 {
+        color: var(--ink) !important;
+    }
+
     /* ── Mode toggle pill ── */
     .theme-toggle-row {
         display: flex;
