@@ -1,6 +1,7 @@
 import streamlit as st
 from crew.crew import run_crew
 from history import load_history, add_entry, clear_history
+from theme import inject_theme
 
 st.set_page_config(
     page_title="StartupScope",
@@ -8,207 +9,14 @@ st.set_page_config(
     layout="wide"
 )
 
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #0D0D0D;
-        color: #E0E0E0;
-    }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .block-container {
-        padding-top: 3rem;
-        padding-bottom: 3rem;
-        max-width: 1200px;
-    }
-    .main-title {
-        font-size: 2.8rem;
-        font-weight: 700;
-        color: #FFFFFF;
-        letter-spacing: -0.5px;
-        margin-bottom: 0.2rem;
-    }
-    .subtitle {
-        font-size: 1rem;
-        color: #666666;
-        margin-bottom: 2.5rem;
-        letter-spacing: 0.3px;
-    }
-    .divider {
-        border: none;
-        border-top: 1px solid #1E1E1E;
-        margin: 1.5rem 0;
-    }
-    .stTextInput label {
-        color: #999999 !important;
-        font-size: 0.85rem !important;
-        font-weight: 500 !important;
-        letter-spacing: 0.8px !important;
-        text-transform: uppercase !important;
-    }
-    .stTextInput input {
-        background-color: #141414 !important;
-        border: 1px solid #2A2A2A !important;
-        border-radius: 8px !important;
-        color: #FFFFFF !important;
-        font-size: 1rem !important;
-        padding: 0.75rem 1rem !important;
-    }
-    .stTextInput input:focus {
-        border-color: #444444 !important;
-        box-shadow: none !important;
-    }
-    .stButton > button {
-        background-color: #FFFFFF !important;
-        color: #000000 !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
-        padding: 0.6rem 2rem !important;
-        width: 100% !important;
-        margin-top: 0.5rem !important;
-        transition: opacity 0.2s !important;
-    }
-    .stButton > button:hover {
-        opacity: 0.85 !important;
-    }
-    .stButton > button:disabled {
-        background-color: #2A2A2A !important;
-        color: #555555 !important;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #141414 !important;
-        border-radius: 8px !important;
-        padding: 4px !important;
-        border: 1px solid #2A2A2A !important;
-    }
-    .stTabs [data-baseweb="tab"] {
-        color: #666666 !important;
-        font-weight: 500 !important;
-        border-radius: 6px !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #FFFFFF !important;
-        color: #000000 !important;
-    }
-    .stMarkdown h1 {
-        color: #FFFFFF !important;
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-        margin-top: 1.5rem !important;
-    }
-    .stMarkdown h2 {
-        color: #CCCCCC !important;
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-        margin-top: 1.5rem !important;
-        padding-bottom: 0.4rem !important;
-        border-bottom: 1px solid #1E1E1E !important;
-    }
-    .stMarkdown p, .stMarkdown li {
-        color: #BBBBBB !important;
-        line-height: 1.7 !important;
-    }
-    .stMarkdown strong {
-        color: #FFFFFF !important;
-    }
-    .stDownloadButton > button {
-        background-color: #141414 !important;
-        color: #AAAAAA !important;
-        border: 1px solid #2A2A2A !important;
-        border-radius: 8px !important;
-        font-size: 0.85rem !important;
-        margin-top: 1rem !important;
-        width: 100% !important;
-    }
-    .mode-card {
-        background-color: #141414;
-        border: 1px solid #2A2A2A;
-        border-radius: 10px;
-        padding: 1.2rem 1.5rem;
-        cursor: pointer;
-        margin-bottom: 1rem;
-    }
-    .mode-card-active {
-        border-color: #FFFFFF;
-    }
-    .mode-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: #FFFFFF;
-        margin-bottom: 0.2rem;
-    }
-    .mode-desc {
-        font-size: 0.82rem;
-        color: #666666;
-    }
-    .badge-row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 2rem;
-        flex-wrap: wrap;
-    }
-    .badge {
-        background-color: #141414;
-        border: 1px solid #2A2A2A;
-        border-radius: 20px;
-        padding: 3px 12px;
-        font-size: 0.75rem;
-        color: #666666;
-    }
-    .footer-text {
-        color: #333333;
-        font-size: 0.78rem;
-        text-align: center;
-        margin-top: 3rem;
-        letter-spacing: 0.5px;
-    }
-    .vs-divider {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.2rem;
-        font-weight: 700;
-        color: #444444;
-        padding-top: 1.8rem;
-    }
-    .history-item {
-        background-color: #141414;
-        border: 1px solid #2A2A2A;
-        border-radius: 8px;
-        padding: 0.6rem 0.8rem;
-        margin-bottom: 0.5rem;
-    }
-    .history-company {
-        color: #FFFFFF;
-        font-size: 0.88rem;
-        font-weight: 600;
-    }
-    .history-time {
-        color: #666666;
-        font-size: 0.72rem;
-        margin-top: 0.1rem;
-    }
-    section[data-testid="stSidebar"] {
-        background-color: #0A0A0A !important;
-        border-right: 1px solid #1E1E1E !important;
-    }
-    section[data-testid="stSidebar"] .stButton > button {
-        background-color: #141414 !important;
-        color: #BBBBBB !important;
-        border: 1px solid #2A2A2A !important;
-        font-weight: 500 !important;
-        font-size: 0.8rem !important;
-        padding: 0.4rem 0.8rem !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+# ── THEME BOOTSTRAP ──
+# Must happen before any other st.markdown / UI calls.
+if "theme_mode" not in st.session_state:
+    st.session_state.theme_mode = "Brief"   # default: dark
 
-# Session state for viewing a history entry
+inject_theme(st.session_state.theme_mode)
+
+# ── SESSION STATE ──
 if "viewing_history_id" not in st.session_state:
     st.session_state.viewing_history_id = None
 
@@ -228,7 +36,7 @@ with st.sidebar:
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
         for entry in history:
-            label = entry["label"]
+            label    = entry["label"]
             time_str = entry["display_time"]
             mode_tag = "⚡ Compare" if entry["mode"] == "compare" else "🔍 Single"
 
@@ -249,9 +57,31 @@ with st.sidebar:
             st.session_state.viewing_history_id = None
             st.rerun()
 
-# Header
-st.markdown('<div class="main-title">StartupScope</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">AI-powered startup intelligence. Research any company in 90 seconds.</div>', unsafe_allow_html=True)
+# ── HEADER ROW (title left, theme toggle right) ──
+header_left, header_right = st.columns([8, 2])
+
+with header_left:
+    st.markdown('<div class="main-title">StartupScope</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="subtitle">AI-powered startup intelligence. '
+        'Research any company in 90 seconds.</div>',
+        unsafe_allow_html=True
+    )
+
+with header_right:
+    # Spacer so the toggle sits roughly level with the title baseline
+    st.markdown("<br>", unsafe_allow_html=True)
+    chosen = st.radio(
+        "Theme",
+        ["Brief", "Console"],
+        index=0 if st.session_state.theme_mode == "Brief" else 1,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="theme_radio"
+    )
+    if chosen != st.session_state.theme_mode:
+        st.session_state.theme_mode = chosen
+        st.rerun()   # re-render with new palette injected at top
 
 st.markdown("""
 <div class="badge-row">
@@ -265,10 +95,13 @@ st.markdown("""
 
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-# ── IF VIEWING A HISTORY ENTRY, SHOW IT AND STOP ──
+# ── HISTORY VIEW ──
 if st.session_state.viewing_history_id:
-    history = load_history()
-    selected = next((e for e in history if e["id"] == st.session_state.viewing_history_id), None)
+    history  = load_history()
+    selected = next(
+        (e for e in history if e["id"] == st.session_state.viewing_history_id),
+        None
+    )
 
     if selected:
         st.markdown(f"**Viewing saved report** · {selected['display_time']}")
@@ -291,7 +124,7 @@ if st.session_state.viewing_history_id:
     """, unsafe_allow_html=True)
     st.stop()
 
-# Mode selector
+# ── MODE SELECTOR ──
 mode = st.radio(
     "Mode",
     ["Single Company", "Compare Two Companies"],
@@ -309,7 +142,7 @@ if mode == "Single Company":
     )
 
     if st.button("Generate Intelligence Report", disabled=not company_name):
-        with st.spinner(f"Researching {company_name}... agents working in sequence"):
+        with st.spinner(f"Researching {company_name}… agents working in sequence"):
             try:
                 result, saved_path = run_crew(company_name)
                 add_entry(company_name, result, mode="single")
@@ -365,7 +198,11 @@ else:
                     st.error(f"{company_b} failed: {str(e)}")
 
         if result_a and result_b:
-            combined = f"# Comparison: {company_a} vs {company_b}\n\n---\n\n## {company_a}\n\n{result_a}\n\n---\n\n## {company_b}\n\n{result_b}"
+            combined = (
+                f"# Comparison: {company_a} vs {company_b}\n\n---\n\n"
+                f"## {company_a}\n\n{result_a}\n\n---\n\n"
+                f"## {company_b}\n\n{result_b}"
+            )
             add_entry(
                 f"{company_a} vs {company_b}",
                 combined,
@@ -418,7 +255,7 @@ else:
                     key="dl_combined"
                 )
 
-# Footer
+# ── FOOTER ──
 st.markdown("""
 <div class="footer-text">
     STARTUPSCOPE &nbsp;·&nbsp; CREWAI &nbsp;·&nbsp; GROQ &nbsp;·&nbsp; STREAMLIT
