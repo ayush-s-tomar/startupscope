@@ -1,8 +1,6 @@
 from crewai import Crew, Process
 from crew.agents import get_researcher, get_analyst, get_writer
 from crew.tasks import get_research_task, get_analysis_task, get_writing_task
-from pathlib import Path
-import datetime
 import time
 
 
@@ -37,26 +35,16 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
             result = crew.kickoff()
             result_str = str(result)
 
-            Path("outputs").mkdir(exist_ok=True)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_name = company_name.replace(" ", "_").lower()
-            filename = f"outputs/{safe_name}_{timestamp}.md"
-
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(result_str)
-
-            return result_str, filename
+            return result_str, None  # no file saved; history handled by app.py
 
         except Exception as e:
             last_error = e
             is_last_attempt = attempt == (max_retries + 1)
 
             if is_last_attempt:
-                # No more retries left — raise so the UI can show the error
                 raise RuntimeError(
                     f"Failed after {attempt} attempt(s). Last error: {str(last_error)}"
                 ) from last_error
             else:
-                # Wait briefly before retrying — gives transient issues time to clear
                 time.sleep(2)
                 continue
