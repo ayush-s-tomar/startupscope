@@ -2,6 +2,9 @@ import streamlit as st
 from crew.crew import run_crew
 from history import load_history, add_entry, clear_history
 from theme import inject_theme
+import threading
+import queue
+import time
 
 st.set_page_config(
     page_title="StartupScope",
@@ -11,9 +14,8 @@ st.set_page_config(
 )
 
 # ── THEME BOOTSTRAP ──
-# Must happen before any other st.markdown / UI calls.
 if "theme_mode" not in st.session_state:
-    st.session_state.theme_mode = "Brief"   # default: dark
+    st.session_state.theme_mode = "Brief"
 
 inject_theme(st.session_state.theme_mode)
 
@@ -21,10 +23,99 @@ inject_theme(st.session_state.theme_mode)
 if "viewing_history_id" not in st.session_state:
     st.session_state.viewing_history_id = None
 
-# ── SIDEBAR: REPORT HISTORY ──
+
+# ── LIVE PROGRESS RUNNER ────────────────────────────────────────────────────
+
+# Each step: (display label, estimated seconds it takes)
+_STEPS = [
+    ("🔍 Researcher is searching the web...",        30),
+    ("📊 Analyst is extracting insights...",          20),
+    ("✍️  Writer is composing the report...",         15),
+    ("✅ Finalising and formatting output...",          5),
+]
+
+def _run_in_thread(company_name: str, result_queue: queue.Queue) -> None:
+    """Run crew in a background thread, push result or exception into queue."""
+    try:
+        result, path = run_crew(company_name)
+        result_queue.put(("ok", result))
+    except Exception as e:
+        result_queue.put(("err", str(e)))
+
+
+def run_with_progress(company_name: str) -> str:
+    """
+    Runs the crew in a background thread while showing a live step-by-step
+    progress UI in Streamlit. Returns the report string on success.
+    Raises RuntimeError on failure.
+    """
+    result_queue = queue.Queue()
+    thread = threading.Thread(
+        target=_run_in_thread,
+        args=(company_name, result_queue),
+        daemon=True
+    )
+    thread.start()
+
+    # ── Progress UI ─────────────────────────────────────────────────────────
+    progress_bar   = st.progress(0)
+    status_text    = st.empty()
+    step_container = st.empty()
+
+    total_steps    = len(_STEPS)
+    step_idx       = 0
+    elapsed        = 0
+    step_elapsed   = 0
+
+    while thread.is_alive() or not result_queue.empty():
+        # Rotate through steps based on elapsed time
+        if step_idx < total_steps:
+            label, duration = _STEPS[step_idx]
+            status_text.markdown(f"**{label}**")
+
+            # Progress within current step
+            step_pct = min(step_elapsed / duration, 1.0)
+            overall_pct = (step_idx + step_pct) / total_steps
+            progress_bar.progress(min(overall_pct, 0.95))  # cap at 95 until done
+
+            # Animated dots to show liveness
+            dots = "." * ((elapsed % 4) + 1)
+            step_container.caption(
+                f"Step {step_idx + 1}/{total_steps} · "
+                f"{int(step_elapsed)}s elapsed{dots}"
+            )
+
+            step_elapsed += 0.5
+            if step_elapsed >= duration and step_idx < total_steps - 1:
+                step_idx    += 1
+                step_elapsed = 0
+
+        time.sleep(0.5)
+        elapsed += 0.5
+
+        # Check if result is ready early
+        if not result_queue.empty():
+            break
+
+    # ── Collect result ───────────────────────────────────────────────────────
+    progress_bar.progress(1.0)
+    status_text.empty()
+    step_container.empty()
+    progress_bar.empty()
+
+    try:
+        status, payload = result_queue.get(timeout=5)
+    except queue.Empty:
+        raise RuntimeError("Crew timed out — no result received.")
+
+    if status == "err":
+        raise RuntimeError(payload)
+    return payload
+
+
+# ── SIDEBAR: REPORT HISTORY ──────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 📜 Report History")
-
     history = load_history()
 
     if not history:
@@ -58,7 +149,8 @@ with st.sidebar:
             st.session_state.viewing_history_id = None
             st.rerun()
 
-# ── HEADER ROW (title left, theme toggle right) ──
+
+# ── HEADER ───────────────────────────────────────────────────────────────────
 header_left, header_right = st.columns([8, 2])
 
 with header_left:
@@ -70,7 +162,6 @@ with header_left:
     )
 
 with header_right:
-    # Spacer so the toggle sits roughly level with the title baseline
     st.markdown("<br>", unsafe_allow_html=True)
     chosen = st.radio(
         "Theme",
@@ -82,7 +173,7 @@ with header_right:
     )
     if chosen != st.session_state.theme_mode:
         st.session_state.theme_mode = chosen
-        st.rerun()   # re-render with new palette injected at top
+        st.rerun()
 
 st.markdown("""
 <div class="badge-row">
@@ -96,7 +187,8 @@ st.markdown("""
 
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-# ── HISTORY VIEW ──
+
+# ── HISTORY VIEW ─────────────────────────────────────────────────────────────
 if st.session_state.viewing_history_id:
     history  = load_history()
     selected = next(
@@ -125,7 +217,8 @@ if st.session_state.viewing_history_id:
     """, unsafe_allow_html=True)
     st.stop()
 
-# ── MODE SELECTOR ──
+
+# ── MODE SELECTOR ─────────────────────────────────────────────────────────────
 mode = st.radio(
     "Mode",
     ["Single Company", "Compare Two Companies"],
@@ -135,7 +228,8 @@ mode = st.radio(
 
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-# ── SINGLE MODE ──
+
+# ── SINGLE MODE ───────────────────────────────────────────────────────────────
 if mode == "Single Company":
     company_name = st.text_input(
         "Company",
@@ -143,25 +237,27 @@ if mode == "Single Company":
     )
 
     if st.button("Generate Intelligence Report", disabled=not company_name):
-        with st.spinner(f"Researching {company_name}… agents working in sequence"):
-            try:
-                result, saved_path = run_crew(company_name)
-                add_entry(company_name, result, mode="single")
-                st.success("Report complete")
-                st.markdown('<hr class="divider">', unsafe_allow_html=True)
-                st.markdown(result)
-                st.markdown('<hr class="divider">', unsafe_allow_html=True)
-                st.download_button(
-                    label="↓ Download Report (.md)",
-                    data=result,
-                    file_name=f"{company_name.lower().replace(' ', '_')}_report.md",
-                    mime="text/markdown"
-                )
-            except Exception as e:
-                st.error(f"Something went wrong: {str(e)}")
-                st.info("Check your API keys and try again.")
+        try:
+            # ── Live progress replaces the silent spinner ──────────────────
+            result = run_with_progress(company_name)
 
-# ── COMPARE MODE ──
+            add_entry(company_name, result, mode="single")
+            st.success("✅ Report complete")
+            st.markdown('<hr class="divider">', unsafe_allow_html=True)
+            st.markdown(result)
+            st.markdown('<hr class="divider">', unsafe_allow_html=True)
+            st.download_button(
+                label="↓ Download Report (.md)",
+                data=result,
+                file_name=f"{company_name.lower().replace(' ', '_')}_report.md",
+                mime="text/markdown"
+            )
+        except Exception as e:
+            st.error(f"Something went wrong: {str(e)}")
+            st.info("Check your API keys and try again.")
+
+
+# ── COMPARE MODE ──────────────────────────────────────────────────────────────
 else:
     col1, col_mid, col2 = st.columns([5, 1, 5])
 
@@ -180,24 +276,24 @@ else:
         result_a = None
         result_b = None
 
-        col_a, col_b = st.columns(2)
+        # ── Company A with live progress ───────────────────────────────────
+        st.markdown(f"#### Researching {company_a}...")
+        try:
+            result_a = run_with_progress(company_a)
+            st.success(f"✅ {company_a} done")
+        except Exception as e:
+            st.error(f"{company_a} failed: {str(e)}")
 
-        with col_a:
-            with st.spinner(f"Researching {company_a}..."):
-                try:
-                    result_a, _ = run_crew(company_a)
-                    st.success(f"{company_a} done")
-                except Exception as e:
-                    st.error(f"{company_a} failed: {str(e)}")
+        # ── Company B with live progress ───────────────────────────────────
+        if result_a:
+            st.markdown(f"#### Researching {company_b}...")
+            try:
+                result_b = run_with_progress(company_b)
+                st.success(f"✅ {company_b} done")
+            except Exception as e:
+                st.error(f"{company_b} failed: {str(e)}")
 
-        with col_b:
-            with st.spinner(f"Researching {company_b}..."):
-                try:
-                    result_b, _ = run_crew(company_b)
-                    st.success(f"{company_b} done")
-                except Exception as e:
-                    st.error(f"{company_b} failed: {str(e)}")
-
+        # ── Render comparison ──────────────────────────────────────────────
         if result_a and result_b:
             combined = (
                 f"# Comparison: {company_a} vs {company_b}\n\n---\n\n"
@@ -256,7 +352,8 @@ else:
                     key="dl_combined"
                 )
 
-# ── FOOTER ──
+
+# ── FOOTER ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer-text">
     STARTUPSCOPE &nbsp;·&nbsp; CREWAI &nbsp;·&nbsp; GROQ &nbsp;·&nbsp; STREAMLIT
