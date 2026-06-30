@@ -1,7 +1,9 @@
 # StartupScope — AI-Powered Startup Intelligence Tool
+
 > A multi-agent research tool that automatically researches any startup or company and generates a structured intelligence report — covering funding, business model, competitors, strengths, risks, and recent news.
 
 ## 🌐 Live Demo
+
 👉 https://startupscope-ephq.onrender.com
 
 > ⚡ Hosted on Render free tier — may take 15-20 seconds to wake up on first visit.
@@ -9,49 +11,64 @@
 ---
 
 ## 📸 What it does
+
 - Type any company name (e.g. Razorpay, Zepto, Notion)
 - 3 AI agents research, analyze, and write a full report
 - Get funding history, business model, competitors, strengths, risks
-- Download the report as a markdown file
+- Watch live progress as each agent works — no more silent waiting
+- Compare two companies side-by-side
+- Browse past reports from a persistent history sidebar
+- Download the report as Markdown **or** structured JSON
 
 ---
 
 ## Features
-- **Multi-Agent System** — 3 specialized agents work sequentially (Researcher → Analyst → Writer)
-- **Live Web Search** — Agents search the internet in real-time via Serper API
-- **Intelligence Report** — Structured markdown report with 9 sections
-- **Download Report** — Save the report as a `.md` file
-- **Clean Dark UI** — Professional dark-themed interface
+
+- **Multi-Agent System** — 3 specialized agents work sequentially (Researcher → Analyst → Writer), sharing a structured context object so data flows cleanly between steps
+- **Live Web Search with Fallback** — Agents search the internet via Serper API, with automatic DuckDuckGo fallback if Serper fails or hits quota
+- **Source Credibility Scoring** — Search results are ranked by domain trust (Crunchbase, TechCrunch, Reuters rank above forums/Q&A sites) before agents read them
+- **Live Progress Streaming** — Real-time step-by-step status ("🔍 Researcher is searching...", "📊 Analyst is extracting insights...") replaces the old silent spinner
+- **Report History** — Past reports are saved and browsable from a sidebar, with timestamps and single/compare mode tags
+- **Compare Mode** — Research two companies side-by-side with tabbed and split-view comparison
+- **Structured JSON Output** — Every report is also parsed into a typed JSON schema (funding, competitors, strengths, risks, verdict) for programmatic use
+- **Multi-Format Export** — Each run saves both `.md` and `.json` files to `outputs/`
+- **CLI Batch Mode** — Research multiple companies in one run via a CSV file, with built-in delay to respect API rate limits
+- **Resilient Retries** — Exponential backoff automatically retries transient Groq/API failures instead of crashing
+- **Clean Dual-Theme UI** — Professional dark-themed interface with toggleable "Brief" and "Console" visual modes
 
 ---
 
 ## Tech Stack
+
 | Layer | Tech |
 |-------|------|
 | Agent Framework | CrewAI |
 | LLM | Groq API (LLaMA 3.3 70B) |
-| Web Search | Serper Dev API |
+| Web Search | Serper Dev API + DuckDuckGo (fallback) |
 | Frontend | Streamlit |
 | Deployment | Render |
 
 ---
 
 ## Project Structure
+
 ```
 startupscope/
-├── app.py                  # Streamlit UI
-├── main.py                 # Terminal runner
-├── requirements.txt        # Python dependencies
-├── render.yaml             # Render deployment config
-├── .env                    # API keys (not committed)
+├── app.py                  # Streamlit UI — live progress, history sidebar, compare mode
+├── main.py                 # Terminal runner — single company or CSV batch mode
+├── history.py               # Report history persistence (load/add/clear)
+├── theme.py                 # Dual-theme (Brief/Console) injection
+├── requirements.txt         # Python dependencies
+├── render.yaml               # Render deployment config — health checks, env vars
+├── .env                      # API keys (not committed)
 ├── .gitignore
 ├── crew/
-│   ├── agents.py           # 3 agent definitions
-│   ├── tasks.py            # 3 task definitions
-│   └── crew.py             # Crew assembly and runner
+│   ├── agents.py            # 3 agent definitions + shared agent_context schema
+│   ├── tasks.py              # 3 task definitions, wired to agent_context
+│   └── crew.py                # Crew assembly, retry logic, JSON schema export
 ├── tools/
-│   └── search_tool.py      # Serper web search tool
-└── outputs/                # Generated reports saved here
+│   └── search_tool.py        # Serper + DuckDuckGo fallback, credibility scoring
+└── outputs/                  # Generated .md and .json reports saved here
 ```
 
 ---
@@ -70,6 +87,7 @@ pip install -r requirements.txt
 ```
 
 ### 3. Set up your API keys
+
 Get your free Groq key at [console.groq.com](https://console.groq.com)
 Get your free Serper key at [serper.dev](https://serper.dev)
 
@@ -88,53 +106,90 @@ Open your browser and go to: **http://localhost:8501**
 ---
 
 ## How to Use
+
+### Web App
 1. Open the app in your browser
 2. Type any company name in the input field
-3. Click **Generate Intelligence Report**
-4. Wait 60–90 seconds while the 3 agents work
-5. Read the report and download it as `.md`
+3. Click **Generate Intelligence Report** and watch the live agent progress
+4. Read the report and download it as `.md` or `.json`
+5. Switch to **Compare Two Companies** mode to research two startups side-by-side
+6. Browse past reports anytime from the sidebar history
+
+### Command Line
+```bash
+# Interactive prompt (original behaviour)
+python main.py
+
+# Single company via flag
+python main.py --company Razorpay
+
+# Batch mode — researches every company in a CSV, one at a time
+python main.py --batch companies.csv
+```
+
+`companies.csv` format:
+```
+company
+Razorpay
+Zepto
+Notion
+Groww
+```
 
 ---
 
 ## How the Agents Work
+
 ```
 User Input (Company Name)
         ↓
 [Agent 1: Researcher]
-Searches the web, collects raw data
+Searches the web (Serper → DuckDuckGo fallback),
+ranks sources by credibility, writes findings into
+shared agent_context
         ↓
 [Agent 2: Analyst]
-Extracts insights, identifies strengths & risks
+Reads agent_context, extracts strengths, risks,
+market opportunity, and a verdict
         ↓
 [Agent 3: Writer]
-Formats everything into a clean report
+Reads the fully-populated agent_context,
+formats everything into a clean markdown report
         ↓
-Intelligence Report
+Markdown Report (.md)  +  Structured JSON Schema (.json)
 ```
+
+If any step fails on a transient API error, the crew retries automatically with exponential backoff before giving up.
 
 ---
 
 ## Deployment (Free on Render)
+
 1. Push this repo to GitHub
 2. Go to [render.com](https://render.com) → New → Web Service
 3. Connect your GitHub repo
 4. Set **Build Command**: `pip install -r requirements.txt`
 5. Set **Start Command**: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
 6. Add environment variables: `GROQ_API_KEY` and `SERPER_API_KEY`
-7. Deploy!
+7. (Optional) tune `MAX_RETRIES` and `BATCH_DELAY` from the Render dashboard without touching code
+8. Deploy! Render's health check automatically restarts the service if it crashes
 
 ---
 
 ## What I Learned
-- Building multi-agent AI systems with CrewAI
-- Integrating LLM APIs (Groq — LLaMA 3.3 70B)
-- Real-time web search integration with Serper
-- Sequential agent orchestration and task chaining
-- Deploying Streamlit apps on Render
+
+- Building multi-agent AI systems with CrewAI, including shared context passing between agents
+- Integrating LLM APIs (Groq — LLaMA 3.3 70B) with retry and backoff handling for production reliability
+- Real-time web search integration with fallback strategies (Serper → DuckDuckGo) and source credibility filtering
+- Sequential agent orchestration and task chaining with structured, typed outputs (JSON schema generation from LLM output)
+- Building responsive, real-time UI feedback in Streamlit using threading and progress state
+- Designing for resilience on constrained infrastructure (free-tier rate limits, health checks, exponential backoff)
+- Deploying and maintaining a multi-service Python app on Render
 
 ---
 
 ## License
+
 MIT License — feel free to use and modify.
 
 ---
