@@ -4,8 +4,34 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+
+    # ── Health check ─────────────────────────────────────────────────────────
+    # Render pings / every 30s. If it fails, the service restarts automatically.
+    # Keeps the free-tier instance alive and catches silent crashes.
+    healthCheckPath: /
+
+    # ── Auto-deploy ──────────────────────────────────────────────────────────
+    # Every push to main triggers a fresh deploy on Render.
+    autoDeploy: true
+
     envVars:
+      # ── Required API keys (set values in Render dashboard, never here) ─────
       - key: GROQ_API_KEY
         sync: false
       - key: SERPER_API_KEY
         sync: false
+
+      # ── Feature J: rate-limit & retry config ─────────────────────────────
+      # Tune these in Render dashboard → Environment without touching code.
+      - key: MAX_RETRIES
+        value: "2"          # retries per company before giving up
+      - key: BATCH_DELAY
+        value: "15"         # seconds between companies in batch mode
+
+      # ── Streamlit config ──────────────────────────────────────────────────
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      - key: STREAMLIT_SERVER_ENABLE_CORS
+        value: "false"
+      - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+        value: "false"
