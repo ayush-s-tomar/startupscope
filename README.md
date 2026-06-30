@@ -8,6 +8,12 @@
 
 > ⚡ Hosted on Render free tier — may take 15-20 seconds to wake up on first visit.
 
+### Side-by-side comparison in action
+
+![StartupScope comparing Anthropic vs OpenAI](./demo-compare.png)
+
+*Real output from Compare Mode — two intelligence reports generated and rendered side-by-side in a single run.*
+
 ---
 
 ## 📸 What it does
@@ -35,6 +41,12 @@
 - **CLI Batch Mode** — Research multiple companies in one run via a CSV file, with built-in delay to respect API rate limits
 - **Resilient Retries** — Exponential backoff automatically retries transient Groq/API failures instead of crashing
 - **Clean Dual-Theme UI** — Professional dark-themed interface with toggleable "Brief" and "Console" visual modes
+
+### Known Limitations
+
+- Some fields (founding year, HQ, exact funding totals) come back as "Not specified" for companies that don't publicly disclose this data or where search results are sparse — the agents are instructed to never invent figures, so an honest gap is shown instead of a guess
+- Report quality depends on Serper/DuckDuckGo result freshness; very recent funding rounds or news may not surface immediately
+- Free-tier Groq and Serper rate limits mean heavy back-to-back usage can trigger the retry/backoff logic, slightly increasing response time
 
 ---
 
