@@ -399,6 +399,37 @@ _BANNED_INFRA_PHRASES = [
 ]
 
 
+_MONEY_BLEED_PATTERN = re.compile(
+    r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)\s+(?:total\s+funding|funding|raised)?\s*and\s+a\s+recent[^.,;]*",
+    re.IGNORECASE,
+)
+
+
+def _scrub_money_bleed(md_report):
+    """
+    The prose-bleed bug (a garbled money fragment like '132B and a recent
+    Series H round' getting glued mid-sentence) was originally only fixed
+    for the two structured fields (total_raised/last_round) via
+    _sanitize_money_field. But the same tendency shows up anywhere the
+    model writes free-text prose that mentions funding -- e.g. inside a
+    strengths[] bullet -- which that field-level fix never touches. This
+    is a last-resort mechanical scrub over the FINAL rendered report text,
+    catching the same 'money fragment + and a recent...' shape wherever it
+    appears and collapsing it down to just the clean money value.
+    """
+    def _clean_match(m):
+        money = re.search(r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)", m.group(0), re.IGNORECASE)
+        if not money:
+            return ""
+        val = money.group(0)
+        if not val.startswith("$"):
+            val = "$" + val
+        print("[crew] scrubbed money-bleed from report: '" + m.group(0) + "' -> '" + val + "'")
+        return val
+
+    return _MONEY_BLEED_PATTERN.sub(_clean_match, md_report)
+
+
 def _scrub_unsupported_infra_claims(md_report, search_text):
     """
     Prompt-level instructions failed to stop 'multi-cloud infrastructure'
@@ -454,6 +485,7 @@ def run_crew(company_name, max_retries=4):
     print("[crew] Stage 3/3: writing (1 flat LLM call)...")
     writing_prompt = build_writing_prompt(company_name, analysis_raw)
     md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=1200)
+    md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
