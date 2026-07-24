@@ -510,6 +510,79 @@ def _build_search_failure_report(company_name, reason):
     return md_report, schema
 
 
+_EMPTY_MARKERS = ("", "not publicly available", "not specified", "n/a", "unknown")
+
+
+def _is_effectively_empty(schema):
+    """
+    True if the schema has essentially no real content -- every scalar
+    field is blank/a known placeholder AND every list field is empty.
+    Used to catch the case where the pipeline runs start-to-finish without
+    raising any exception, but produced nothing usable (e.g. search
+    returned no real content, so every downstream field is honestly
+    "Not publicly available" -- correct behavior per-field, but the
+    aggregate result is a useless report that gives no visibility into why).
+    """
+    scalars = [
+        schema.get("overview", ""),
+        schema.get("what_they_do", ""),
+        schema.get("business_model", ""),
+        schema.get("quick_facts", {}).get("founded", ""),
+        schema.get("quick_facts", {}).get("hq", ""),
+        schema.get("quick_facts", {}).get("team_size", ""),
+        schema.get("quick_facts", {}).get("total_raised", ""),
+    ]
+    scalars_empty = all((s or "").strip().lower() in _EMPTY_MARKERS for s in scalars)
+
+    lists_empty = all(
+        len(schema.get(k, []) or []) == 0
+        for k in ("strengths", "risks", "competitors", "recent_news")
+    )
+
+    return scalars_empty and lists_empty
+
+
+def _count_search_hits(search_text):
+    """
+    Counts how many of the individual 'Query: ...' blocks in search_text
+    contain what looks like real content, vs. an error/empty marker. Used
+    only for the diagnostics report -- a quick eyeball of search health
+    without needing Cloud logs.
+    """
+    blocks = search_text.split("\n\nQuery: ")
+    total = len(blocks)
+    failed = 0
+    for block in blocks:
+        lower = block.lower()
+        if any(marker in lower for marker in _SEARCH_FAILURE_MARKERS) or "no results found" in lower:
+            failed += 1
+    return total - failed, total
+
+
+def _build_diagnostics_report(company_name, search_text, research_raw, analysis_raw, md_report):
+    """
+    Builds a version of the report with a Diagnostics section prepended,
+    showing raw pipeline output at each stage. Only triggered when the
+    final schema came back effectively empty. This is meant to be pasted
+    directly from the app UI -- no need to dig through Cloud logs.
+    """
+    good_hits, total_queries = _count_search_hits(search_text)
+
+    diag = (
+        "# ⚠️ Diagnostics — " + company_name + "\n\n"
+        "The report below came back with almost no real data. Here is the "
+        "raw pipeline output at each stage so the cause is visible without "
+        "checking Cloud logs.\n\n"
+        "**Search:** " + str(good_hits) + " / " + str(total_queries) + " queries "
+        "returned usable content.\n\n"
+        "**First 100 chars of search text:**\n```\n" + search_text[:100].replace("`", "'") + "\n```\n\n"
+        "**Research stage raw output (first 400 chars):**\n```\n" + (research_raw or "")[:400].replace("`", "'") + "\n```\n\n"
+        "**Analysis stage raw output (first 400 chars):**\n```\n" + (analysis_raw or "")[:400].replace("`", "'") + "\n```\n\n"
+        "---\n\n"
+    )
+    return diag + md_report
+
+
 def run_crew(company_name, max_retries=4):
     print("[crew] Searching (plain Python, no tokens spent here)...")
     search_text = _run_searches(company_name)
@@ -545,6 +618,11 @@ def run_crew(company_name, max_retries=4):
     md_report = md_report.replace("`", "")
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
+
+    if _is_effectively_empty(schema):
+        print("[crew] WARNING: final schema is effectively empty -- attaching diagnostics to report")
+        md_report = _build_diagnostics_report(company_name, search_text, research_raw, analysis_raw, md_report)
+
     saved_paths = _save_outputs(company_name, md_report, schema)
 
     print("[crew] Saved: " + saved_paths["md"])
