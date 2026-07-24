@@ -109,13 +109,28 @@ if "prefill_company" not in st.session_state:
 
 # ── LIVE PROGRESS RUNNER ────────────────────────────────────────────────────
 
-# Each step: (display label, estimated seconds it takes)
+# Each step: (display label, estimated seconds it takes). These were
+# rebalanced against the ACTUAL pipeline timing in crew.py's run_crew(),
+# not guessed -- the old estimates (30/20/15/5 = 70s total) badly undersold
+# the real budget, which includes two hardcoded time.sleep(15) calls
+# between stages plus 3 Groq LLM calls plus up to 8 search queries. That
+# mismatch was what made a perfectly normal ~90-150s run look "frozen" on
+# the progress bar: it hit 95% at the 70s mark and then just sat there
+# motionless for another minute-plus while real work was still happening
+# underneath, with nothing on screen to show that.
+#
+#   research stage  = 5 search queries (sleep(1) each) + 1 LLM call
+#   analysis stage   = time.sleep(15) + 1 LLM call + up to 3 competitor
+#                       searches (sleep(1) each)
+#   writer stage     = time.sleep(15) + 1 LLM call
+#   finalize         = scrub/regex passes + save to disk
 _STEPS = [
-    ("🔍 Researcher is searching the web...",        30),
-    ("📊 Analyst is extracting insights...",          20),
-    ("✍️  Writer is composing the report...",         15),
-    ("✅ Finalising and formatting output...",          5),
+    ("🔍 Researcher is searching the web...",        20),
+    ("📊 Analyst is extracting insights...",          35),
+    ("✍️  Writer is composing the report...",         30),
+    ("✅ Finalising and formatting output...",         10),
 ]
+_ESTIMATED_TOTAL = sum(d for _, d in _STEPS)  # ~95s -- realistic, not aspirational
 
 # Hard ceiling on the ENTIRE run_crew() call, in seconds. This is a
 # last-resort watchdog, separate from and in addition to the per-request
@@ -124,9 +139,8 @@ _STEPS = [
 # that ANY unexpected hang anywhere in the pipeline -- a stuck search
 # call, a deadlock, a future bug that doesn't go through call_llm at all --
 # can never again freeze the UI on "Finalising..." forever with no way out.
-# 3 LLM stages x (up to 4 retries x ~45s timeout each) plus sleeps between
-# stages comfortably fits under this; it's set generously above the normal
-# path so it only fires on genuine hangs, not slow-but-normal runs.
+# Retries can genuinely push a run well past _ESTIMATED_TOTAL, so this is
+# set generously above it -- it should only ever fire on a real hang.
 MAX_RUN_SECONDS = 240
 
 
@@ -147,6 +161,15 @@ def run_with_progress(company_name: str) -> str:
     MAX_RUN_SECONDS -- the thread itself is daemonized, so even if it's
     truly stuck it won't block the app from recovering and showing the
     user an actionable error instead of spinning forever.
+
+    Progress is driven off overall elapsed time against MAX_RUN_SECONDS,
+    not per-step elapsed against a hardcoded per-step cutoff -- so once a
+    run runs longer than the happy-path estimate (e.g. due to a retry),
+    the bar keeps creeping forward the whole time instead of hard-parking
+    at a cap the moment the last step's estimate is exhausted. That was
+    the actual cause of the "stuck" look: the bar hit its cap and then
+    visually froze even while the run was still healthily in progress
+    underneath.
     """
     result_queue = queue.Queue()
     thread = threading.Thread(
@@ -161,10 +184,17 @@ def run_with_progress(company_name: str) -> str:
     status_text    = st.empty()
     step_container = st.empty()
 
-    total_steps    = len(_STEPS)
-    step_idx       = 0
-    elapsed        = 0
-    step_elapsed   = 0
+    total_steps = len(_STEPS)
+    elapsed     = 0.0
+
+    # Cumulative cutoff for each step, e.g. [20, 55, 85, 95] for the
+    # durations above -- used to figure out which step label to show for
+    # the current elapsed time.
+    cumulative = []
+    running = 0
+    for _, dur in _STEPS:
+        running += dur
+        cumulative.append(running)
 
     while thread.is_alive() or not result_queue.empty():
         # Watchdog: if the whole run has taken too long, stop waiting on
@@ -181,27 +211,29 @@ def run_with_progress(company_name: str) -> str:
                 "or the search provider. Please try again."
             )
 
-        # Rotate through steps based on elapsed time
-        if step_idx < total_steps:
-            label, duration = _STEPS[step_idx]
-            status_text.markdown(f"**{label}**")
+        # Which step are we conceptually in, based on elapsed time?
+        step_idx = total_steps - 1
+        for i, cutoff in enumerate(cumulative):
+            if elapsed < cutoff:
+                step_idx = i
+                break
 
-            # Progress within current step
-            step_pct = min(step_elapsed / duration, 1.0)
-            overall_pct = (step_idx + step_pct) / total_steps
-            progress_bar.progress(min(overall_pct, 0.95))  # cap at 95 until done
+        label, _ = _STEPS[step_idx]
+        status_text.markdown(f"**{label}**")
 
-            # Animated dots to show liveness
-            dots = "." * (int(elapsed) % 4 + 1)
-            step_container.caption(
-                f"Step {step_idx + 1}/{total_steps} · "
-                f"{int(step_elapsed)}s elapsed{dots}"
-            )
+        # Overall progress creeps continuously toward 99% across the FULL
+        # MAX_RUN_SECONDS window, not just _ESTIMATED_TOTAL -- so a run
+        # that's taking longer than the happy-path estimate still visibly
+        # advances instead of sitting frozen at a hard cap. It never
+        # reaches 100% until the result actually arrives.
+        overall_pct = min(elapsed / MAX_RUN_SECONDS, 0.99)
+        progress_bar.progress(overall_pct)
 
-            step_elapsed += 0.5
-            if step_elapsed >= duration and step_idx < total_steps - 1:
-                step_idx    += 1
-                step_elapsed = 0
+        dots = "." * (int(elapsed) % 4 + 1)
+        step_container.caption(
+            f"Step {step_idx + 1}/{total_steps} · "
+            f"{int(elapsed)}s elapsed{dots}"
+        )
 
         time.sleep(0.5)
         elapsed += 0.5
