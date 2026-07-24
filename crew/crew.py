@@ -487,6 +487,15 @@ def run_crew(company_name, max_retries=4):
     md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=1200)
     md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
+    # Final safety net: this report format never legitimately needs inline
+    # code formatting anywhere. The visible "code chip" artifacts turned
+    # out to be literal backtick characters the model wraps around numbers
+    # (content itself was often fine -- "180B in funding, including a
+    # recent 122B round" reads as valid prose), which markdown then renders
+    # as monospace inline code. Chasing the exact wording pattern around
+    # each occurrence is a losing game since it varies bullet to bullet;
+    # stripping backticks outright is pattern-independent and can't miss.
+    md_report = md_report.replace("`", "")
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
     saved_paths = _save_outputs(company_name, md_report, schema)
