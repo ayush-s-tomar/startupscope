@@ -44,7 +44,12 @@ use outside knowledge.
 
 Output ONLY valid JSON, no prose, no markdown fences, with exactly these keys:
 company_name, product_summary, founded, hq, team_size,
-funding {{total_raised, last_round, investors[]}},
+funding {{total_raised, last_round, investors[]}} -- total_raised is the
+CUMULATIVE amount raised across all rounds to date (often phrased as
+"has raised $X total" or reflected in a valuation figure); last_round is
+just the size/name of the most recent round. These are usually different
+numbers -- do not copy last_round's amount into total_raised unless a
+source explicitly states it as the cumulative total.
 competitors[] (each: name, model, funding — up to 3),
 recent_news[] (each: headline, date, source — up to 3),
 tech_stack[], growth_metrics.
