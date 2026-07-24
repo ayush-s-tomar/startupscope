@@ -21,14 +21,14 @@ def get_research_task(agent, company_name: str):
         description=f"""
 Research the company: {company_name}.
 
-Run 4+ web searches covering: funding/investors, product/business model,
-competitors, recent news (2024-2025).
+Run 2 web searches: one for funding/investors/business model, one for
+recent news and competitors (2024-2025).
 
 Output ONLY valid JSON, no prose, no fences, with exactly these keys:
 company_name, product_summary, founded, hq, team_size,
 funding {{total_raised, last_round, investors[]}},
-competitors[] (each: name, model, funding — 3+ when available),
-recent_news[] (each: headline, date, source — 3+ from last 6mo when available),
+competitors[] (each: name, model, funding — up to 3),
+recent_news[] (each: headline, date, source — up to 3),
 tech_stack[], growth_metrics.
 
 If a field can't be found, use "Not publicly available" (or [] for lists) —
@@ -55,7 +55,7 @@ def get_analysis_task(agent, company_name: str):
 Parse the research JSON for {company_name} in your task context.
 
 Return a NEW JSON object with all original fields unchanged, plus:
-strengths[] (2-3, specific), risks[] (2-3, specific), market_opportunity
+strengths[] (2, specific), risks[] (2, specific), market_opportunity
 (1-2 sentences), competitive_position (1-2 sentences vs. competitors[]),
 business_model (2-3 sentences), verdict ("Promising"|"Neutral"|"Risky"),
 verdict_rationale (2-3 sentences).

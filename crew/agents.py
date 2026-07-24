@@ -28,7 +28,7 @@ _MAX_RPM = {
 # this is not per-model. Capping max_tokens on every call keeps any single
 # completion from eating most of that shared budget and starving the next
 # stage in the same 60s window.
-_MAX_OUTPUT_TOKENS = 900
+_MAX_OUTPUT_TOKENS = 600
 
 
 def _rpm_for(model):
@@ -42,6 +42,18 @@ def get_llm(model=None):
         temperature=0.3,
         max_tokens=_MAX_OUTPUT_TOKENS
     )
+
+
+import time as _time
+
+
+def _throttle_step(step):
+    # Fires between EVERY iteration inside a single agent's loop (each
+    # search + reasoning round is its own LLM call). Without this, an
+    # agent with max_iter=4 can fire 4 calls in a few seconds and blow
+    # the 8000 TPM budget entirely within one stage, before the
+    # between-stage cooldowns in crew.py ever get a chance to matter.
+    _time.sleep(12)
 
 
 def get_researcher(model=None):
@@ -70,15 +82,12 @@ def get_researcher(model=None):
         llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
-        # Must be >= (number of searches the task requests) + 1 for the
-        # final JSON answer. The task asks for 4+ searches; max_iter=3 was
-        # cutting the agent off mid-search, CrewAI then forced
-        # tool_choice="none" to make it answer, but the model still tried
-        # to call a tool -- Groq hard-rejects that combination
-        # (tool_use_failed) and it's not retryable, it fails every time.
-        max_iter=6,
+        # Task now asks for 2 searches, not 4+ -- max_iter is searches + 1
+        # for the final JSON answer, with room to spare.
+        max_iter=4,
         max_rpm=_rpm_for(model),
-        memory=True
+        memory=True,
+        step_callback=_throttle_step
     )
 
 
