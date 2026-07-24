@@ -21,7 +21,7 @@ FALLBACK_MODEL = "groq/llama-3.1-8b-instant"
 
 _MAX_RPM = {
     PRIMARY_MODEL: 15,
-    FALLBACK_MODEL: 6,
+    FALLBACK_MODEL: 4,
 }
 
 

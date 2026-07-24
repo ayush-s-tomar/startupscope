@@ -173,7 +173,7 @@ _QUOTA_EXHAUSTED_ERRORS = (
     "rpd)",
 )
 _BASE_BACKOFF = 2
-_MAX_BACKOFF = 30
+_MAX_BACKOFF = 65
 
 
 def _classify_error(error_msg):
@@ -191,7 +191,7 @@ def _suggested_wait(error_msg):
     ms_match = re.search(r"try again in\s+([\d.]+)ms", error_msg, re.IGNORECASE)
     if ms_match:
         seconds = float(ms_match.group(1)) / 1000.0
-        return max(seconds + 5.0, 8.0)
+        return max(seconds + 5.0, 10.0)
 
     s_match = re.search(r"try again in\s+([\d.]+)s", error_msg, re.IGNORECASE)
     if s_match:
@@ -205,11 +205,22 @@ def _backoff(attempt, error_type, error_msg=""):
         suggested = _suggested_wait(error_msg)
         if suggested:
             return suggested
-        return min(10 * (2 ** (attempt - 1)), _MAX_BACKOFF)
+        return min(15 * (2 ** (attempt - 1)), _MAX_BACKOFF)
     return min(_BASE_BACKOFF * (2 ** (attempt - 1)), _MAX_BACKOFF)
 
 
-def run_crew(company_name, max_retries=3):
+def _run_stage(agents, tasks, current_model, stage_name):
+    stage_crew = Crew(
+        agents=agents,
+        tasks=tasks,
+        process=Process.sequential,
+        verbose=True
+    )
+    print("[crew] Running stage: " + stage_name + " on " + current_model)
+    return stage_crew.kickoff()
+
+
+def run_crew(company_name, max_retries=4):
     total_attempts = max_retries + 1
     last_error = None
     current_model = PRIMARY_MODEL
@@ -227,24 +238,17 @@ def run_crew(company_name, max_retries=3):
             analysis_task.context = [research_task]
             writing_task.context = [research_task, analysis_task]
 
-            research_crew = Crew(
-                agents=[researcher],
-                tasks=[research_task],
-                process=Process.sequential,
-                verbose=True
-            )
-            research_crew.kickoff()
+            _run_stage([researcher], [research_task], current_model, "research")
 
-            cooldown = 12 if current_model == FALLBACK_MODEL else 3
-            time.sleep(cooldown)
+            cooldown_1 = 25 if current_model == FALLBACK_MODEL else 3
+            time.sleep(cooldown_1)
 
-            crew = Crew(
-                agents=[analyst, writer],
-                tasks=[analysis_task, writing_task],
-                process=Process.sequential,
-                verbose=True
-            )
-            result = crew.kickoff()
+            _run_stage([analyst], [analysis_task], current_model, "analysis")
+
+            cooldown_2 = 20 if current_model == FALLBACK_MODEL else 2
+            time.sleep(cooldown_2)
+
+            result = _run_stage([writer], [writing_task], current_model, "writing")
             md_report = str(result)
 
             analysis_raw = getattr(analysis_task.output, "raw", "") or ""
@@ -267,7 +271,7 @@ def run_crew(company_name, max_retries=3):
             if error_type == "quota_exhausted" and current_model != FALLBACK_MODEL:
                 print("[Attempt " + str(attempt) + "/" + str(total_attempts) + "] Daily quota exhausted on " + current_model + " -- switching to " + FALLBACK_MODEL)
                 current_model = FALLBACK_MODEL
-                wait = 1.0
+                wait = 2.0
             else:
                 wait = _backoff(attempt, error_type, error_msg)
 

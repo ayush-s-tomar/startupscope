@@ -49,7 +49,7 @@ def _format_results(results, source_tag):
         score_label = ""
         if r["_score"] != 0:
             score_label = "[credibility: " + ("+" if r["_score"] > 0 else "") + str(r["_score"]) + "]"
-        snippet = (r.get("snippet") or "N/A")[:150]
+        snippet = (r.get("snippet") or "N/A")[:100]
         line = (
             "[" + source_tag + "] " + score_label + "\n"
             "Title:   " + r.get("title", "N/A") + "\n"
@@ -66,7 +66,7 @@ def _search_serper(query):
         raise ValueError("SERPER_API_KEY not set")
 
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    payload = {"q": query, "num": 3}
+    payload = {"q": query, "num": 2}
 
     response = requests.post(
         "https://google.serper.dev/search",
@@ -138,7 +138,7 @@ def _search_duckduckgo(query):
         }
         results.append(entry)
 
-    return results[:3]
+    return results[:2]
 
 
 @tool("search_the_internet")
