@@ -6,6 +6,10 @@ from crewai import Task
 # Each task's real output is data, not a side-effect. CrewAI passes a task's
 # output text to any later task listed in that task's `.context` — that's the
 # only reliable channel for handing data between agents.
+#
+# NOTE: descriptions here are intentionally terse. Every extra token in these
+# strings is repeated on every retry across 3 stages, which is what was
+# blowing the 8000 TPM cap. Keep additions minimal.
 
 def get_research_task(agent, company_name: str):
     """
@@ -15,50 +19,28 @@ def get_research_task(agent, company_name: str):
     """
     return Task(
         description=f"""
-Research the company: **{company_name}**.
+Research the company: {company_name}.
 
-Run at least 4 different web searches using varied query angles, for example:
-  - "{company_name} startup funding history investors"
-  - "{company_name} product features business model revenue"
-  - "{company_name} competitors market"
-  - "{company_name} news 2024 2025"
+Run 4+ web searches covering: funding/investors, product/business model,
+competitors, recent news (2024-2025).
 
-After researching, output ONLY a single valid JSON object with exactly this shape
-(no prose before or after it, no markdown code fences):
+Output ONLY valid JSON, no prose, no fences, with exactly these keys:
+company_name, product_summary, founded, hq, team_size,
+funding {{total_raised, last_round, investors[]}},
+competitors[] (each: name, model, funding — 3+ when available),
+recent_news[] (each: headline, date, source — 3+ from last 6mo when available),
+tech_stack[], growth_metrics.
 
-{{
-  "company_name": "{company_name}",
-  "product_summary": "one sentence: what the company does",
-  "founded": "year founded, or 'Not publicly available'",
-  "hq": "city, country, or 'Not publicly available'",
-  "team_size": "approximate headcount, or 'Not publicly available'",
-  "funding": {{
-    "total_raised": "e.g. '$120M', or 'Not publicly available'",
-    "last_round": "e.g. 'Series B, Jan 2024', or 'Not publicly available'",
-    "investors": ["list", "of", "investor names"]
-  }},
-  "competitors": [
-    {{"name": "...", "model": "...", "funding": "..."}}
-  ],
-  "recent_news": [
-    {{"headline": "...", "date": "...", "source": "..."}}
-  ],
-  "tech_stack": ["list", "of", "technology or product feature strings"],
-  "growth_metrics": "any public revenue or growth figure, or 'Not publicly available'"
-}}
-
-Rules:
-- competitors must have at least 3 entries when the data is available.
-- recent_news must have at least 3 entries from the last 6 months when available.
-- If a field truly cannot be found after searching, use "Not publicly available"
-  (or an empty list for list fields) — never leave a field out of the JSON.
-- Output must be valid JSON and nothing else.
+If a field can't be found, use "Not publicly available" (or [] for lists) —
+never omit a key. Only include a fact if a search result explicitly states
+it — do not infer cloud/infra partners, tech stack, or API compatibility
+from indirect context (e.g. an investor is not automatically an infra
+partner).
         """,
         agent=agent,
         expected_output=(
             "A single valid JSON object with the exact keys described above, "
-            "populated from real search results. No prose, no markdown fences, "
-            "no commentary — JSON only."
+            "populated from real search results. JSON only, no prose/fences."
         )
     )
 
@@ -70,31 +52,21 @@ def get_analysis_task(agent, company_name: str):
     """
     return Task(
         description=f"""
-You will find the research data for **{company_name}** in your task context —
-it is a JSON object produced by the previous task. Parse it.
+Parse the research JSON for {company_name} in your task context.
 
-Using only that data, produce a NEW JSON object that contains:
-  - every field from the original research JSON, unchanged
-  - plus these additional fields:
-    "strengths":            list of 2-3 concise, specific strength strings
-    "risks":                list of 2-3 concise, specific risk strings
-    "market_opportunity":   1-2 sentence market sizing / TAM summary
-    "competitive_position": 1-2 sentence summary of how the company stands
-                             vs. its competitors (use the competitors list
-                             from the research data)
-    "business_model":       2-3 sentences on how the company makes money,
-                             inferred from the research data
-    "verdict":               exactly one of "Promising", "Neutral", "Risky"
-    "verdict_rationale":     2-3 sentence explanation of the verdict
+Return a NEW JSON object with all original fields unchanged, plus:
+strengths[] (2-3, specific), risks[] (2-3, specific), market_opportunity
+(1-2 sentences), competitive_position (1-2 sentences vs. competitors[]),
+business_model (2-3 sentences), verdict ("Promising"|"Neutral"|"Risky"),
+verdict_rationale (2-3 sentences).
 
-Rules:
-- Base every insight strictly on the research data you were given. Do not
-  invent figures or rely on outside/general knowledge.
-- Strengths and risks must be specific (e.g. "Backed by a $110B round led by
-  Amazon, Nvidia, and SoftBank" not "Has good investors").
-- If the research data for a field is "Not publicly available" or empty,
-  factor that into your analysis honestly rather than inventing a number.
-- Output ONLY the JSON object — no prose, no markdown fences, no commentary.
+Base every insight strictly on the given data — never invent figures or use
+outside knowledge. If a source field is "Not publicly available" or empty,
+reflect that honestly rather than guessing. Do not state or imply any cloud
+provider, infrastructure partnership, or API compatibility claim unless it
+appears explicitly in the research data — omit rather than infer.
+
+Output ONLY the JSON object, no prose, no fences.
         """,
         agent=agent,
         expected_output=(
@@ -112,58 +84,52 @@ def get_writing_task(agent, company_name: str):
     """
     return Task(
         description=f"""
-You will find the fully-enriched JSON data for **{company_name}** in your task
-context — it is the output of the previous (analysis) task. Parse it.
+Parse the enriched JSON for {company_name} in your task context.
 
-Render the report in this exact markdown format, replacing every placeholder
-with a real value taken from the JSON:
+Render this exact markdown structure, filling every placeholder with real
+values from the JSON:
 
----
 # {company_name} — Intelligence Report
 
 ## Overview
-(1-2 sentences from product_summary and market_opportunity)
+(from product_summary + market_opportunity)
 
 ## Quick Facts
-| Field        | Value |
-|--------------|-------|
-| Founded      | founded |
-| HQ           | hq |
-| Team size    | team_size |
+| Field | Value |
+|---|---|
+| Founded | founded |
+| HQ | hq |
+| Team size | team_size |
 | Total raised | funding.total_raised |
-| Last round   | funding.last_round |
+| Last round | funding.last_round |
 
 ## What They Do
-(Expand on product_summary using tech_stack details)
+(expand product_summary using tech_stack)
 
 ## Business Model
 (business_model)
 
 ## Strengths
-(Bullet list from strengths)
+(bullets from strengths)
 
 ## Risks
-(Bullet list from risks)
+(bullets from risks)
 
 ## Competitive Landscape
-(Table or bullet list from competitors, plus competitive_position)
+(from competitors + competitive_position)
 
 ## Recent News
-(Bullet list from recent_news — include date and source for each)
+(bullets from recent_news, with date + source)
 
 ## Verdict
 **verdict**
 (verdict_rationale)
 
----
 *Report generated by StartupScope*
----
 
-Rules:
-- Use the ACTUAL values from the JSON you were given — never invent data.
-- If a JSON field is missing, empty, "Not publicly available", or an empty
-  list, write "Data unavailable" for that part of the report.
-- Keep the Quick Facts table as a markdown table — do not replace it with prose.
+Rules: use only actual JSON values, never invent data. If a field is
+missing/empty/"Not publicly available", write "Data unavailable" for that
+part. Keep Quick Facts as a markdown table.
         """,
         agent=agent,
         expected_output=(

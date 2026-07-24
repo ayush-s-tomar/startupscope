@@ -240,12 +240,15 @@ def run_crew(company_name, max_retries=4):
 
             _run_stage([researcher], [research_task], current_model, "research")
 
-            cooldown_1 = 25 if current_model == FALLBACK_MODEL else 3
+            # Both PRIMARY_MODEL and FALLBACK_MODEL share the same 8000 TPM
+            # cap on Groq's free tier, so both need the full cooldown to let
+            # the 60s TPM window actually clear before the next call.
+            cooldown_1 = 35
             time.sleep(cooldown_1)
 
             _run_stage([analyst], [analysis_task], current_model, "analysis")
 
-            cooldown_2 = 20 if current_model == FALLBACK_MODEL else 2
+            cooldown_2 = 30
             time.sleep(cooldown_2)
 
             result = _run_stage([writer], [writing_task], current_model, "writing")
