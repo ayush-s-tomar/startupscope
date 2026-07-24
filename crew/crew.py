@@ -218,9 +218,25 @@ def _classify_error(error_msg: str) -> str:
     return "unknown"
 
 
-def _backoff(attempt: int, error_type: str) -> float:
-    base = 5 if error_type == "rate_limit" else _BASE_BACKOFF
-    return min(base * (2 ** (attempt - 1)), _MAX_BACKOFF)
+def _suggested_wait(error_msg: str) -> float:
+    """
+    Groq's rate-limit errors include a hint like 'Please try again in 3.465s'.
+    Use that directly (plus a small buffer) when present — it's far more
+    accurate than a generic exponential guess.
+    """
+    match = re.search(r"try again in\s+([\d.]+)s", error_msg, re.IGNORECASE)
+    if match:
+        return float(match.group(1)) + 1.5
+    return 0.0
+
+
+def _backoff(attempt: int, error_type: str, error_msg: str = "") -> float:
+    if error_type == "rate_limit":
+        suggested = _suggested_wait(error_msg)
+        if suggested:
+            return suggested
+        return min(10 * (2 ** (attempt - 1)), _MAX_BACKOFF)
+    return min(_BASE_BACKOFF * (2 ** (attempt - 1)), _MAX_BACKOFF)
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -284,7 +300,7 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
             last_error = e
             error_msg  = str(e)
             error_type = _classify_error(error_msg)
-            wait       = _backoff(attempt, error_type)
+            wait       = _backoff(attempt, error_type, error_msg)
 
             if attempt < total_attempts:
                 print(

@@ -61,7 +61,7 @@ def get_researcher():
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
-        max_iter=6,
+        max_iter=4,
         memory=True
     )
 
