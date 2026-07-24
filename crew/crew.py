@@ -119,19 +119,38 @@ def _schema_from_analysis_json(analysis_raw, company_name):
         print(analysis_raw[:500])
         return schema
 
+    funding = data.get("funding", {})
+    if not isinstance(funding, dict):
+        # Same non-dict-funding guard as _strip_unsupported_total_raised --
+        # this function runs independently on analysis_raw, so it needs
+        # its own copy of the guard rather than relying on the earlier
+        # stage having already fixed it.
+        print("[crew] WARNING: 'funding' was not an object (" + type(funding).__name__ + ") in analysis stage -- coercing")
+        funding = {"total_raised": str(funding) if funding else "", "last_round": "", "investors": []}
+
+    competitors = data.get("competitors", [])
+    if not isinstance(competitors, list):
+        competitors = []
+    fixed_competitors = []
+    for comp in competitors:
+        if isinstance(comp, dict):
+            fixed_competitors.append(comp)
+        elif isinstance(comp, str) and comp.strip():
+            fixed_competitors.append({"name": comp.strip(), "model": "Not publicly available", "funding": "Not publicly available"})
+
     schema["overview"] = data.get("product_summary", "")
     schema["quick_facts"] = {
         "founded": data.get("founded", ""),
         "hq": data.get("hq", ""),
         "team_size": data.get("team_size", ""),
-        "total_raised": _sanitize_money_field(data.get("funding", {}).get("total_raised", "")),
-        "last_round": _sanitize_money_field(data.get("funding", {}).get("last_round", "")),
+        "total_raised": _sanitize_money_field(funding.get("total_raised", "")),
+        "last_round": _sanitize_money_field(funding.get("last_round", "")),
     }
     schema["what_they_do"] = data.get("product_summary", "")
     schema["business_model"] = data.get("business_model", "")
     schema["strengths"] = data.get("strengths", [])
     schema["risks"] = data.get("risks", [])
-    schema["competitors"] = data.get("competitors", [])
+    schema["competitors"] = fixed_competitors
     schema["recent_news"] = data.get("recent_news", [])
     schema["verdict"] = data.get("verdict", "")
     schema["verdict_rationale"] = data.get("verdict_rationale", "")
@@ -270,6 +289,16 @@ def _strip_unsupported_total_raised(research_raw, search_text):
         return research_raw
 
     funding = data.get("funding", {})
+    if not isinstance(funding, dict):
+        # Model returned funding as a plain string/number instead of an
+        # object (e.g. "funding": "$3B raised") -- .get() on it would
+        # crash with "'str' object has no attribute 'get'". Coerce to the
+        # expected shape, keeping the raw value as total_raised so it
+        # still gets a chance to be sanitized/verified below instead of
+        # silently losing the data or crashing the whole pipeline.
+        print("[crew] WARNING: 'funding' was not an object (" + type(funding).__name__ + ") in research stage -- coercing")
+        funding = {"total_raised": str(funding) if funding else "", "last_round": "", "investors": []}
+        data["funding"] = funding
     changed = False
 
     total_raised = funding.get("total_raised", "")
@@ -372,6 +401,19 @@ def _enrich_competitor_funding(analysis_raw, max_competitors=3):
         return analysis_raw
 
     changed = False
+    for i, comp in enumerate(competitors):
+        if not isinstance(comp, dict):
+            # Model returned a bare competitor name (e.g. "Anthropic")
+            # instead of an object with name/model/funding keys.
+            # comp.get(...) below would crash with "'str' object has no
+            # attribute 'get'" -- wrap it into the expected shape in
+            # place so this function and every downstream consumer see a
+            # consistent dict, not a raw string.
+            print("[crew] WARNING: competitor entry was not an object (" + type(comp).__name__ + ") -- coercing: '" + str(comp)[:60] + "'")
+            comp = {"name": str(comp).strip(), "model": "Not publicly available", "funding": "Not publicly available"}
+            competitors[i] = comp
+            changed = True
+
     for comp in competitors[:max_competitors]:
         name = comp.get("name", "").strip()
         if not name:
