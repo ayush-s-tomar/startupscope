@@ -4,8 +4,8 @@ import os
 import time
 from datetime import datetime
 
-from agents import call_llm_with_retry
-from tasks import (
+from crew.agents import call_llm_with_retry
+from crew.tasks import (
     RESEARCH_SYSTEM, ANALYSIS_SYSTEM, WRITER_SYSTEM,
     build_research_prompt, build_analysis_prompt, build_writing_prompt
 )
