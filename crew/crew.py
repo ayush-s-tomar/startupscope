@@ -454,9 +454,70 @@ def _scrub_unsupported_infra_claims(md_report, search_text):
     return cleaned
 
 
+_SEARCH_FAILURE_MARKERS = (
+    "search tool unavailable",
+    "search failed for query",
+    "no results found from any source",
+    "both search sources failed",
+)
+
+
+def _check_search_health(search_text, queries_run):
+    """
+    Counts how many of the individual search queries actually failed
+    (matched one of the known failure-marker strings that _call_search_tool
+    / search_the_internet emit on error) versus how many returned real
+    content. Returns the failure reason string if ALL queries failed,
+    otherwise returns None. This is checked right after search, before any
+    LLM calls are made, so a total search failure is caught immediately
+    instead of silently cascading into a fully empty report several stages
+    later with no visible explanation of why.
+    """
+    blocks = search_text.split("\n\nQuery: ")
+    failed = []
+    for block in blocks:
+        lower = block.lower()
+        if any(marker in lower for marker in _SEARCH_FAILURE_MARKERS):
+            failed.append(block.strip().split("\n")[-1][:200])
+
+    if len(failed) >= queries_run and queries_run > 0:
+        return failed[0] if failed else "unknown -- all queries returned empty"
+    return None
+
+
+def _build_search_failure_report(company_name, reason):
+    """
+    Instead of letting a total search failure silently cascade into a
+    report where every field says 'Data unavailable' with zero
+    explanation, this builds a small report that states the real reason
+    directly, so it's visible on-screen without needing Cloud logs.
+    """
+    md_report = (
+        "# " + company_name + " — Intelligence Report\n\n"
+        "## Search Failed\n"
+        "This report could not be generated because every web search "
+        "query failed before reaching the AI stages.\n\n"
+        "**Reason reported by the search tool:**\n\n"
+        "> " + reason + "\n\n"
+        "Common causes: `SERPER_API_KEY` invalid or out of quota (check "
+        "Serper dashboard billing/usage), or a rate limit / network block "
+        "on the search provider. No LLM tokens were spent on this run.\n"
+    )
+    schema = _empty_schema(company_name)
+    schema["overview"] = "Search failed: " + reason
+    return md_report, schema
+
+
 def run_crew(company_name, max_retries=4):
     print("[crew] Searching (plain Python, no tokens spent here)...")
     search_text = _run_searches(company_name)
+
+    failure_reason = _check_search_health(search_text, queries_run=5)
+    if failure_reason:
+        print("[crew] ABORTING before LLM calls -- all searches failed: " + failure_reason)
+        md_report, schema = _build_search_failure_report(company_name, failure_reason)
+        saved_paths = _save_outputs(company_name, md_report, schema)
+        return md_report, saved_paths
 
     print("[crew] Stage 1/3: research (1 flat LLM call)...")
     research_prompt = build_research_prompt(company_name, search_text)
