@@ -188,9 +188,15 @@ def _classify_error(error_msg):
 
 
 def _suggested_wait(error_msg):
-    match = re.search(r"try again in\s+([\d.]+)s", error_msg, re.IGNORECASE)
-    if match:
-        return float(match.group(1)) + 2.0
+    ms_match = re.search(r"try again in\s+([\d.]+)ms", error_msg, re.IGNORECASE)
+    if ms_match:
+        seconds = float(ms_match.group(1)) / 1000.0
+        return max(seconds + 5.0, 8.0)
+
+    s_match = re.search(r"try again in\s+([\d.]+)s", error_msg, re.IGNORECASE)
+    if s_match:
+        return float(s_match.group(1)) + 3.0
+
     return 0.0
 
 
