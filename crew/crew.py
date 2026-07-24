@@ -268,8 +268,16 @@ def run_crew(company_name, max_retries=4):
             error_msg = str(e)
             error_type = _classify_error(error_msg)
 
-            if error_type == "quota_exhausted" and current_model != FALLBACK_MODEL:
-                print("[Attempt " + str(attempt) + "/" + str(total_attempts) + "] Daily quota exhausted on " + current_model + " -- switching to " + FALLBACK_MODEL)
+            should_switch = (
+                current_model != FALLBACK_MODEL and (
+                    error_type == "quota_exhausted"
+                    or (error_type == "rate_limit" and attempt >= 2)
+                )
+            )
+
+            if should_switch:
+                reason = "Daily quota exhausted" if error_type == "quota_exhausted" else "Repeated TPM rate limits"
+                print("[Attempt " + str(attempt) + "/" + str(total_attempts) + "] " + reason + " on " + current_model + " -- switching to " + FALLBACK_MODEL)
                 current_model = FALLBACK_MODEL
                 wait = 2.0
             else:
