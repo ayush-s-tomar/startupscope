@@ -17,11 +17,11 @@ def get_secret(key):
 
 
 PRIMARY_MODEL = "groq/llama-3.3-70b-versatile"
-FALLBACK_MODEL = "groq/llama-3.1-8b-instant"
+FALLBACK_MODEL = "groq/llama3-8b-8192"
 
 _MAX_RPM = {
     PRIMARY_MODEL: 15,
-    FALLBACK_MODEL: 4,
+    FALLBACK_MODEL: 8,
 }
 
 
