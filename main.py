@@ -6,7 +6,8 @@ import time
 import sys
 
 # ── Rate-limit config from env (Feature J) ──────────────────────────────────
-# Set these in your .env or Render environment variables dashboard.
+# Set these in your .env locally (this file is CLI-only and never runs on
+# Streamlit Cloud, so it keeps using plain env vars / .env — no st.secrets needed).
 # MAX_RETRIES     — how many times to retry a failed company (default 2)
 # BATCH_DELAY     — seconds to wait between companies in batch mode (default 15)
 #                   keeps you safely under Groq's free-tier RPM limit
