@@ -54,6 +54,31 @@ def call_llm(prompt, model=None, system=None, max_tokens=None):
             + " completion_tokens=" + str(getattr(usage, "completion_tokens", "?"))
             + " total_tokens=" + str(getattr(usage, "total_tokens", "?"))
         )
+
+    # gpt-oss-120b/20b are reasoning models: part of the completion-token
+    # budget goes to an internal reasoning trace before the model writes
+    # its actual answer. If max_tokens is too tight, the model can spend
+    # its entire budget "thinking" and never emit any answer text at all --
+    # response.choices[0].message.content comes back as "" (or None), not
+    # as an API error, so this was previously treated as a *successful*
+    # call that just happened to return nothing. That blank string then
+    # flowed silently through every downstream stage, which is why the
+    # final report came back with real search results but a totally empty
+    # research stage and no visible error anywhere. Raising here turns
+    # that silent failure into a real, retryable error.
+    if not text or not text.strip():
+        finish_reason = None
+        try:
+            finish_reason = response.choices[0].finish_reason
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Empty completion content from " + (model or PRIMARY_MODEL)
+            + " (finish_reason=" + str(finish_reason) + ") -- the model likely "
+            "spent its entire token budget on internal reasoning and never "
+            "wrote an answer. Needs a larger max_tokens."
+        )
+
     return text
 
 
@@ -65,17 +90,33 @@ def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
     between iterations because there ARE no iterations.
     """
     current_model = PRIMARY_MODEL
+    current_max_tokens = max_tokens or MAX_OUTPUT_TOKENS
     last_error = None
 
     for attempt in range(1, max_retries + 2):
         try:
-            return call_llm(prompt, model=current_model, system=system, max_tokens=max_tokens)
+            return call_llm(prompt, model=current_model, system=system, max_tokens=current_max_tokens)
         except Exception as e:
             last_error = e
             msg = str(e).lower()
 
             is_quota = any(s in msg for s in ("tokens per day", "requests per day", "tpd)", "rpd)"))
             is_rate_limit = any(s in msg for s in ("rate_limit_exceeded", "429", "too many requests"))
+            is_empty_completion = "empty completion content" in msg
+
+            if is_empty_completion:
+                # Retrying with the same max_tokens would just fail the
+                # same way again -- the model needs more room to finish
+                # its reasoning trace AND write the answer. Grow the
+                # budget each time this specific failure happens.
+                bumped = int(current_max_tokens * 1.6)
+                print(
+                    "[llm] empty completion from " + current_model
+                    + " -- bumping max_tokens " + str(current_max_tokens)
+                    + " -> " + str(bumped)
+                )
+                current_max_tokens = bumped
+                wait = 2
 
             if is_quota and current_model != FALLBACK_MODEL:
                 print("[llm] quota exhausted on " + current_model + " -- switching to " + FALLBACK_MODEL)

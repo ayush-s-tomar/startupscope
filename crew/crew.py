@@ -596,14 +596,19 @@ def run_crew(company_name, max_retries=4):
 
     print("[crew] Stage 1/3: research (1 flat LLM call)...")
     research_prompt = build_research_prompt(company_name, search_text)
-    research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries, max_tokens=1500)
+    # gpt-oss-120b/20b are reasoning models -- part of max_tokens goes to an
+    # internal reasoning trace before the actual JSON answer gets written.
+    # 1500 was tight enough that the model could burn the whole budget
+    # reasoning and return empty content (see agents.py's empty-completion
+    # check). 2600 gives real headroom for both.
+    research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries, max_tokens=2600)
     research_raw = _strip_unsupported_total_raised(research_raw, search_text)
 
     time.sleep(15)
 
     print("[crew] Stage 2/3: analysis (1 flat LLM call)...")
     analysis_prompt = build_analysis_prompt(company_name, research_raw)
-    analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries, max_tokens=1500)
+    analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries, max_tokens=2600)
 
     print("[crew] Enriching competitor funding (plain Python, targeted searches)...")
     analysis_raw = _enrich_competitor_funding(analysis_raw)
@@ -612,7 +617,7 @@ def run_crew(company_name, max_retries=4):
 
     print("[crew] Stage 3/3: writing (1 flat LLM call)...")
     writing_prompt = build_writing_prompt(company_name, analysis_raw)
-    md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=1200)
+    md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=2000)
     md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
     md_report = md_report.replace("`", "")
