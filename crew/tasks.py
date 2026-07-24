@@ -34,9 +34,13 @@ ANALYSIS_SYSTEM = (
     "architecture claim (e.g. 'multi-cloud', 'built on AWS/Azure/GCP') that "
     "isn't explicitly present in the research JSON you were given -- if "
     "tech_stack is empty or vague, leave infrastructure claims out entirely "
-    "rather than describing a plausible-sounding generic setup. Never state "
-    "a total funding figure that isn't explicitly present as total_raised in "
-    "the data -- do not substitute a valuation or a single round's size."
+    "rather than describing a plausible-sounding generic setup. CRITICAL: "
+    "you may only use dollar amounts, percentages, and metrics that are "
+    "LITERAL VALUES already present in the input JSON (e.g. funding.total_raised, "
+    "funding.last_round). Do not introduce ANY new numeric figure that isn't "
+    "already a value in that JSON -- no valuation estimates, no derived "
+    "percentages, no 'approximately $X' guesses. If you don't have a number "
+    "for something, describe it qualitatively instead of inventing one."
 )
 
 WRITER_SYSTEM = (
@@ -47,7 +51,12 @@ WRITER_SYSTEM = (
     "descriptive infrastructure language (cloud providers, hosting, 'scalable "
     "systems', 'multi-cloud', etc.) that isn't a literal field value, even if "
     "it would make the report sound more complete. If tech_stack is empty, "
-    "you say so plainly rather than writing generic filler about it."
+    "you say so plainly rather than writing generic filler about it. CRITICAL: "
+    "every dollar figure, percentage, or metric in your output must trace to "
+    "a literal value in the input JSON -- do not write any new number that "
+    "isn't already there, including valuations, estimates, or 'roughly $X' "
+    "approximations. A number that sounds plausible is not the same as a "
+    "number that was given to you."
 )
 
 
