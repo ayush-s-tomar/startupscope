@@ -16,8 +16,8 @@ def get_secret(key):
     return os.getenv(key, "")
 
 
-PRIMARY_MODEL = "groq/llama-3.3-70b-versatile"
-FALLBACK_MODEL = "groq/llama3-8b-8192"
+PRIMARY_MODEL = "groq/openai/gpt-oss-120b"
+FALLBACK_MODEL = "groq/openai/gpt-oss-20b"
 
 _MAX_RPM = {
     PRIMARY_MODEL: 15,
