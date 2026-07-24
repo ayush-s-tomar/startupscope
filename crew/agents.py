@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from dotenv import load_dotenv
 import litellm
@@ -123,6 +124,33 @@ def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
             # whichever specific exception class litellm surfaces.
             is_timeout = "timeout" in msg or "timed out" in msg
 
+            # Daily token/request quota errors (TPD/RPD) come with a
+            # "try again in Xm Ys" wait time that can be tens of minutes --
+            # far longer than any reasonable in-request retry window, and
+            # the SAME across both PRIMARY_MODEL and FALLBACK_MODEL since
+            # they share one org-level daily pool (switching models does
+            # nothing once both are already exhausted). Retrying against
+            # this is pure wasted time that just delays showing the user
+            # the one thing they actually need to know: how long to wait.
+            # Parsed here (not just relying on the generic 's'/'ms' regex
+            # below) because Groq's TPD messages use an "Xm Ys" format that
+            # the old parsing never matched, silently falling through to a
+            # useless 20s backoff and burning all retry attempts first.
+            if is_quota:
+                min_match = re.search(r"try again in\s+([\d.]+)m\s*([\d.]+)?s", msg)
+                if min_match:
+                    mins = float(min_match.group(1))
+                    secs = float(min_match.group(2) or 0)
+                    quota_wait = mins * 60 + secs
+                    raise RuntimeError(
+                        "Groq's daily free-tier token quota is exhausted for "
+                        "this account (used on both the primary and fallback "
+                        "models, which share one pool). It resets in about "
+                        + str(int(quota_wait // 60)) + "m. Please try again "
+                        "after that, or upgrade the Groq plan at "
+                        "https://console.groq.com/settings/billing."
+                    ) from e
+
             wait = min(3 * attempt, 30)  # default fallback, overridden below
 
             if is_empty_completion:
@@ -151,7 +179,6 @@ def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
                 current_model = FALLBACK_MODEL
                 wait = 2
             elif is_rate_limit:
-                import re
                 s_match = re.search(r"try again in\s+([\d.]+)s", msg)
                 ms_match = re.search(r"try again in\s+([\d.]+)ms", msg)
                 if s_match:
