@@ -152,6 +152,33 @@ def _save_outputs(company_name, md_report, schema):
 
 # ── Main pipeline: 3 flat calls, nothing else touches the LLM ─────────────
 
+def _strip_unsupported_total_raised(research_raw, search_text):
+    """
+    Prompt instructions alone weren't reliably stopping the model from
+    reporting a valuation or a single round's size as total_raised (seen
+    live: '$132B total raised' when no source text said that). Rather than
+    keep tuning wording and hoping, this does a mechanical check: if the
+    number in total_raised doesn't literally appear anywhere in the raw
+    search text, it gets overwritten to "Not publicly available" instead
+    of silently repeating a figure the search results never actually gave.
+    """
+    try:
+        data = _extract_json(research_raw)
+    except (json.JSONDecodeError, ValueError):
+        return research_raw
+
+    total_raised = data.get("funding", {}).get("total_raised", "")
+    if total_raised and total_raised != "Not publicly available":
+        digits = re.sub(r"[^\d]", "", total_raised)
+        search_digits_only = re.sub(r"[^\d\s]", " ", search_text)
+        if digits and digits not in search_digits_only.replace(" ", ""):
+            print("[crew] total_raised '" + total_raised + "' not found in search text -- overwriting to 'Not publicly available'")
+            data["funding"]["total_raised"] = "Not publicly available"
+            return json.dumps(data)
+
+    return research_raw
+
+
 def run_crew(company_name, max_retries=4):
     print("[crew] Searching (plain Python, no tokens spent here)...")
     search_text = _run_searches(company_name)
@@ -164,6 +191,7 @@ def run_crew(company_name, max_retries=4):
     # "Data unavailable" everywhere downstream. 1500 gives it room to
     # actually finish the object.
     research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries, max_tokens=1500)
+    research_raw = _strip_unsupported_total_raised(research_raw, search_text)
 
     # Small real cooldown between stages -- with flat single calls (no
     # compounding loop), a short wait is enough; there's no growing
