@@ -25,6 +25,18 @@ def get_secret(key: str) -> str:
 PRIMARY_MODEL  = "groq/llama-3.3-70b-versatile"
 FALLBACK_MODEL = "groq/llama-3.1-8b-instant"
 
+# The 8B fallback has a much tighter per-minute budget (6000 TPM vs the
+# 70B's 12000), so agents on that model are capped harder to avoid bursting
+# past it within a single 60s window.
+_MAX_RPM = {
+    PRIMARY_MODEL:  15,
+    FALLBACK_MODEL: 6,
+}
+
+
+def _rpm_for(model: str) -> int:
+    return _MAX_RPM.get(model, 8)
+
 
 # ── LLM factory ────────────────────────────────────────────────────────────
 
@@ -51,6 +63,7 @@ def get_researcher(model: str = None):
     every researched fact. This JSON *is* the task's output — CrewAI will
     hand it to the next task automatically via task.context.
     """
+    model = model or PRIMARY_MODEL
     return Agent(
         role="Startup Research Specialist",
         goal=(
@@ -70,6 +83,7 @@ def get_researcher(model: str = None):
         verbose=True,
         allow_delegation=False,
         max_iter=4,
+        max_rpm=_rpm_for(model),
         memory=True
     )
 
@@ -81,6 +95,7 @@ def get_analyst(model: str = None):
     market_opportunity, competitive_position, verdict, business_model, and
     verdict_rationale.
     """
+    model = model or PRIMARY_MODEL
     return Agent(
         role="Business Intelligence Analyst",
         goal=(
@@ -101,6 +116,7 @@ def get_analyst(model: str = None):
         verbose=True,
         allow_delegation=False,
         max_iter=3,
+        max_rpm=_rpm_for(model),
         memory=True
     )
 
@@ -110,6 +126,7 @@ def get_writer(model: str = None):
     Receives the Analyst's fully-enriched JSON object (via Task.context) and
     renders it into the final markdown intelligence report.
     """
+    model = model or PRIMARY_MODEL
     return Agent(
         role="Intelligence Report Writer",
         goal=(
@@ -129,5 +146,6 @@ def get_writer(model: str = None):
         verbose=True,
         allow_delegation=False,
         max_iter=2,
+        max_rpm=_rpm_for(model),
         memory=True
     )

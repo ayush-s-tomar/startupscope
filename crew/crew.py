@@ -45,12 +45,10 @@ def _extract_json(text: str) -> dict:
     markdown code fences around it.
     """
     text = text.strip()
-    # Strip ```json ... ``` or ``` ... ``` fences if present
     fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
     if fence_match:
         text = fence_match.group(1).strip()
 
-    # If there's stray text around the object, grab the outermost {...}
     start = text.find("{")
     end   = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -99,7 +97,6 @@ def _parse_markdown_to_schema(md: str, company_name: str) -> dict:
     schema = _empty_schema(company_name)
 
     def _between(md: str, start_header: str, end_headers: list) -> str:
-        """Extract text between two ## headings."""
         pattern = rf"##\s+{re.escape(start_header)}\s*\n(.*?)(?=\n##\s+(?:{'|'.join(end_headers)})|$)"
         m = re.search(pattern, md, re.DOTALL | re.IGNORECASE)
         return m.group(1).strip() if m else ""
@@ -109,10 +106,8 @@ def _parse_markdown_to_schema(md: str, company_name: str) -> dict:
         "Strengths", "Risks", "Competitive Landscape", "Recent News", "Verdict"
     ]
 
-    # ── Overview ──────────────────────────────────────────────────────────────
     schema["overview"] = _between(md, "Overview", all_sections[1:])
 
-    # ── Quick Facts table ──────────────────────────────────────────────────────
     qf_block = _between(md, "Quick Facts", all_sections[2:])
     for line in qf_block.splitlines():
         row = [c.strip() for c in line.split("|") if c.strip()]
@@ -124,13 +119,9 @@ def _parse_markdown_to_schema(md: str, company_name: str) -> dict:
             elif "raised" in key: schema["quick_facts"]["total_raised"]  = val
             elif "round"  in key: schema["quick_facts"]["last_round"]    = val
 
-    # ── What They Do ────────────────────────────────────────────────────────────
     schema["what_they_do"] = _between(md, "What They Do", all_sections[4:])
-
-    # ── Business Model ───────────────────────────────────────────────────────────
     schema["business_model"] = _between(md, "Business Model", all_sections[5:])
 
-    # ── Strengths (bullet list → list of strings) ──────────────────────────────
     s_block = _between(md, "Strengths", all_sections[6:])
     schema["strengths"] = [
         line.lstrip("-•* ").strip()
@@ -138,7 +129,6 @@ def _parse_markdown_to_schema(md: str, company_name: str) -> dict:
         if line.strip().startswith(("-", "•", "*"))
     ]
 
-    # ── Risks (bullet list → list of strings) ─────────────────────────────────
     r_block = _between(md, "Risks", all_sections[7:])
     schema["risks"] = [
         line.lstrip("-•* ").strip()
@@ -146,7 +136,6 @@ def _parse_markdown_to_schema(md: str, company_name: str) -> dict:
         if line.strip().startswith(("-", "•", "*"))
     ]
 
-    # ── Verdict ────────────────────────────────────────────────────────────────
     v_block = _between(md, "Verdict", [])
     for word in ["Promising", "Neutral", "Risky"]:
         if word.lower() in v_block.lower():
@@ -169,12 +158,6 @@ def _safe_name(company_name: str) -> str:
 
 
 def _save_outputs(company_name: str, md_report: str, schema: dict) -> dict:
-    """
-    Saves two files to outputs/:
-      - <company>_<ts>.md    — raw markdown report
-      - <company>_<ts>.json  — typed schema
-    Returns a dict of saved paths.
-    """
     ts   = _timestamp()
     base = f"{_safe_name(company_name)}_{ts}"
 
@@ -219,10 +202,6 @@ def _classify_error(error_msg: str) -> str:
     msg = error_msg.lower()
     if any(e in msg for e in _TOOL_CALL_ERRORS):
         return "tool_call"
-    # Check quota (daily) before rate_limit (per-minute) — both mention
-    # "rate limit" in the message text, but only quota errors mention a
-    # daily window; that distinction is what decides whether we should
-    # wait or switch models.
     if any(e in msg for e in _QUOTA_EXHAUSTED_ERRORS):
         return "quota_exhausted"
     if any(e in msg for e in _RATE_LIMIT_ERRORS):
@@ -257,6 +236,13 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
     """
     Runs the 3-agent crew for a given company.
 
+    Research runs as its own mini-crew first, then a short cooldown, then
+    analysis + writing run together. This spreads token usage across two
+    separate 60s TPM windows instead of bursting all three agents' calls
+    into one — the actual cause of the TPM 429s — and means a failure
+    during analysis/writing doesn't require redoing research (and its
+    tokens) on retry.
+
     Returns:
         (markdown_report: str, saved_paths: dict)
         saved_paths has keys: "md", "json"
@@ -282,20 +268,31 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
             analysis_task.context = [research_task]
             writing_task.context  = [research_task, analysis_task]
 
-            crew = Crew(
-                agents=[researcher, analyst, writer],
-                tasks=[research_task, analysis_task, writing_task],
+            # ── Stage 1: research alone ─────────────────────────────────────
+            research_crew = Crew(
+                agents=[researcher],
+                tasks=[research_task],
                 process=Process.sequential,
                 verbose=True
             )
+            research_crew.kickoff()
 
-            # ── Run crew ─────────────────────────────────────────────────────
+            # Cooldown before the next burst of calls. Longer on the tight
+            # 8B fallback (6000 TPM) than on the primary 70B model (12000 TPM).
+            cooldown = 8 if current_model == FALLBACK_MODEL else 3
+            time.sleep(cooldown)
+
+            # ── Stage 2: analysis + writing ──────────────────────────────────
+            crew = Crew(
+                agents=[analyst, writer],
+                tasks=[analysis_task, writing_task],
+                process=Process.sequential,
+                verbose=True
+            )
             result    = crew.kickoff()
             md_report = str(result)
 
             # ── Build the typed schema from the Analyst's real JSON output ────
-            # (falls back to regex-parsing the markdown only if that JSON
-            # couldn't be parsed for some reason)
             analysis_raw = getattr(analysis_task.output, "raw", "") or ""
             schema = _schema_from_analysis_json(analysis_raw, company_name)
             if not any([schema["strengths"], schema["risks"], schema["verdict"]]):
@@ -314,27 +311,6 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
             error_msg  = str(e)
             error_type = _classify_error(error_msg)
 
-            # ── Daily quota exhausted on this model: switch models instead of
-            # waiting. Groq tracks token quotas separately per model, so the
-            # fallback model has its own untouched daily budget. ─────────────
             if error_type == "quota_exhausted" and current_model != FALLBACK_MODEL:
                 print(
-                    f"[Attempt {attempt}/{total_attempts}] Daily quota exhausted on "
-                    f"{current_model} — switching to {FALLBACK_MODEL} and retrying..."
-                )
-                current_model = FALLBACK_MODEL
-                wait = 1.0
-            else:
-                wait = _backoff(attempt, error_type, error_msg)
-
-            if attempt < total_attempts:
-                print(
-                    f"[Attempt {attempt}/{total_attempts}] "
-                    f"{error_type.replace('_', ' ').title()} — retrying in {wait:.0f}s..."
-                )
-                time.sleep(wait)
-            else:
-                raise RuntimeError(
-                    f"Failed after {attempt} attempt(s) for '{company_name}'. "
-                    f"Last error ({error_type}): {error_msg}"
-                ) from last_error
+                    f"
