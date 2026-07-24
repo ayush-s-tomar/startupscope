@@ -117,6 +117,19 @@ _STEPS = [
     ("✅ Finalising and formatting output...",          5),
 ]
 
+# Hard ceiling on the ENTIRE run_crew() call, in seconds. This is a
+# last-resort watchdog, separate from and in addition to the per-request
+# timeout inside agents.py's call_llm(). The per-request timeout handles
+# the normal case (a single stalled LLM call), but this watchdog exists so
+# that ANY unexpected hang anywhere in the pipeline -- a stuck search
+# call, a deadlock, a future bug that doesn't go through call_llm at all --
+# can never again freeze the UI on "Finalising..." forever with no way out.
+# 3 LLM stages x (up to 4 retries x ~45s timeout each) plus sleeps between
+# stages comfortably fits under this; it's set generously above the normal
+# path so it only fires on genuine hangs, not slow-but-normal runs.
+MAX_RUN_SECONDS = 240
+
+
 def _run_in_thread(company_name: str, result_queue: queue.Queue) -> None:
     """Run crew in a background thread, push result or exception into queue."""
     try:
@@ -130,7 +143,10 @@ def run_with_progress(company_name: str) -> str:
     """
     Runs the crew in a background thread while showing a live step-by-step
     progress UI in Streamlit. Returns the report string on success.
-    Raises RuntimeError on failure.
+    Raises RuntimeError on failure OR if the whole run exceeds
+    MAX_RUN_SECONDS -- the thread itself is daemonized, so even if it's
+    truly stuck it won't block the app from recovering and showing the
+    user an actionable error instead of spinning forever.
     """
     result_queue = queue.Queue()
     thread = threading.Thread(
@@ -151,6 +167,20 @@ def run_with_progress(company_name: str) -> str:
     step_elapsed   = 0
 
     while thread.is_alive() or not result_queue.empty():
+        # Watchdog: if the whole run has taken too long, stop waiting on
+        # the thread (it's daemonized, so it'll be killed when the process
+        # exits) and surface a real, actionable error instead of spinning
+        # on "Finalising..." forever.
+        if elapsed >= MAX_RUN_SECONDS:
+            progress_bar.empty()
+            status_text.empty()
+            step_container.empty()
+            raise RuntimeError(
+                "Report generation timed out after " + str(MAX_RUN_SECONDS)
+                + "s. This usually means a network stall talking to Groq "
+                "or the search provider. Please try again."
+            )
+
         # Rotate through steps based on elapsed time
         if step_idx < total_steps:
             label, duration = _STEPS[step_idx]

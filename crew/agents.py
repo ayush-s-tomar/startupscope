@@ -23,6 +23,18 @@ FALLBACK_MODEL = "groq/openai/gpt-oss-20b"
 # Capped hard so a single completion can never eat most of that budget.
 MAX_OUTPUT_TOKENS = 900
 
+# Hard ceiling on how long a single litellm.completion() call is allowed to
+# block, in seconds. Without this, litellm has NO default timeout -- if the
+# underlying HTTP connection to Groq stalls (slow network, a hung TCP
+# connection, a provider-side stall that never returns and never errors),
+# the call just sits there indefinitely. It never raises an exception, so
+# call_llm_with_retry's retry loop never even triggers, and the background
+# thread in app.py's run_with_progress never finishes OR errors -- which is
+# exactly what was showing up as the UI freezing forever on "Finalising and
+# formatting output..." with no error ever surfacing. Setting a timeout
+# turns a silent infinite hang into a real, retryable TimeoutError.
+REQUEST_TIMEOUT_SECONDS = 45
+
 
 def call_llm(prompt, model=None, system=None, max_tokens=None):
     """
@@ -43,7 +55,8 @@ def call_llm(prompt, model=None, system=None, max_tokens=None):
         messages=messages,
         api_key=get_secret("GROQ_API_KEY"),
         temperature=0.3,
-        max_tokens=max_tokens or MAX_OUTPUT_TOKENS
+        max_tokens=max_tokens or MAX_OUTPUT_TOKENS,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
     text = response.choices[0].message.content
     usage = getattr(response, "usage", None)
@@ -85,9 +98,9 @@ def call_llm(prompt, model=None, system=None, max_tokens=None):
 def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
     """
     Retries a single flat call across primary -> fallback model on
-    rate_limit/quota errors. Because each call is flat-cost (no compounding
-    loop), a real wait actually clears the window -- no throttling needed
-    between iterations because there ARE no iterations.
+    rate_limit/quota/timeout errors. Because each call is flat-cost (no
+    compounding loop), a real wait actually clears the window -- no
+    throttling needed between iterations because there ARE no iterations.
     """
     current_model = PRIMARY_MODEL
     current_max_tokens = max_tokens or MAX_OUTPUT_TOKENS
@@ -103,6 +116,14 @@ def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
             is_quota = any(s in msg for s in ("tokens per day", "requests per day", "tpd)", "rpd)"))
             is_rate_limit = any(s in msg for s in ("rate_limit_exceeded", "429", "too many requests"))
             is_empty_completion = "empty completion content" in msg
+            # litellm raises its own Timeout exception type on a timed-out
+            # call, and also generally includes "timeout" in the message
+            # text regardless of the underlying provider/transport that
+            # raised it -- catching on the message keeps this robust to
+            # whichever specific exception class litellm surfaces.
+            is_timeout = "timeout" in msg or "timed out" in msg
+
+            wait = min(3 * attempt, 30)  # default fallback, overridden below
 
             if is_empty_completion:
                 # Retrying with the same max_tokens would just fail the
@@ -118,6 +139,13 @@ def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
                 current_max_tokens = bumped
                 wait = 2
 
+            if is_timeout:
+                print(
+                    "[llm] request to " + current_model + " timed out after "
+                    + str(REQUEST_TIMEOUT_SECONDS) + "s -- retrying"
+                )
+                wait = 3
+
             if is_quota and current_model != FALLBACK_MODEL:
                 print("[llm] quota exhausted on " + current_model + " -- switching to " + FALLBACK_MODEL)
                 current_model = FALLBACK_MODEL
@@ -132,8 +160,6 @@ def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
                     wait = max(float(ms_match.group(1)) / 1000.0 + 5, 8)
                 else:
                     wait = min(20 * attempt, 65)
-            else:
-                wait = min(3 * attempt, 30)
 
             if attempt <= max_retries:
                 print("[llm] attempt " + str(attempt) + " failed (" + str(e)[:120] + ") -- retrying in " + str(round(wait)) + "s")
