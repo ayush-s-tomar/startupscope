@@ -4,6 +4,16 @@ import os
 import time
 from datetime import datetime
 
+# Must be set before crewai (or anything importing it, like crew.agents) is
+# imported: crewai's telemetry module tries to register OS signal handlers
+# at import/init time, which only works in the main thread. This app calls
+# run_crew() from inside a background thread (see app.py's
+# run_with_progress), so those registrations were failing and logging noisy
+# tracebacks on every run. Disabling telemetry up front skips that
+# registration entirely.
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
 from crew.agents import call_llm_with_retry
 from crew.tasks import (
     RESEARCH_SYSTEM, ANALYSIS_SYSTEM, WRITER_SYSTEM,
@@ -217,11 +227,6 @@ def _sanitize_money_field(value):
     if round_match:
         cleaned = round_match.group(1) + " - " + cleaned
 
-    # Explicitly compare against what a genuinely clean value would look
-    # like, rather than guessing "is this a sentence?" from filler words.
-    # If the original value is exactly the extracted clean form (modulo an
-    # optional leading '$'), leave it untouched; anything else means prose
-    # was surrounding the number and we use the extracted value instead.
     reconstructed = re.escape(cleaned).replace(r"\$", r"\$?")
     if re.fullmatch(reconstructed, value, re.IGNORECASE):
         return value
@@ -286,9 +291,6 @@ def _strip_unsupported_total_raised(research_raw, search_text):
 
 _FUNDING_KEYWORDS = re.compile(r"\b(raised|funding|invested|investment|valuation|valued)\b", re.IGNORECASE)
 
-# No private company has genuinely raised anywhere near this much; a match
-# above this is far more likely to be a market cap, revenue figure, or
-# some other unrelated number that got swept in, not real funding.
 _PLAUSIBLE_FUNDING_CAP = 300_000_000_000
 
 
@@ -521,17 +523,9 @@ def run_crew(company_name, max_retries=4):
 
     print("[crew] Stage 1/3: research (1 flat LLM call)...")
     research_prompt = build_research_prompt(company_name, search_text)
-    # Research JSON has funding, up to 3 competitors, up to 3 news items,
-    # tech_stack, etc -- 900 tokens was truncating this mid-object once
-    # search coverage widened, producing invalid JSON that cascaded into
-    # "Data unavailable" everywhere downstream. 1500 gives it room to
-    # actually finish the object.
     research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries, max_tokens=1500)
     research_raw = _strip_unsupported_total_raised(research_raw, search_text)
 
-    # Small real cooldown between stages -- with flat single calls (no
-    # compounding loop), a short wait is enough; there's no growing
-    # conversation eating the window from within a stage anymore.
     time.sleep(15)
 
     print("[crew] Stage 2/3: analysis (1 flat LLM call)...")
@@ -548,14 +542,6 @@ def run_crew(company_name, max_retries=4):
     md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=1200)
     md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
-    # Final safety net: this report format never legitimately needs inline
-    # code formatting anywhere. The visible "code chip" artifacts turned
-    # out to be literal backtick characters the model wraps around numbers
-    # (content itself was often fine -- "180B in funding, including a
-    # recent 122B round" reads as valid prose), which markdown then renders
-    # as monospace inline code. Chasing the exact wording pattern around
-    # each occurrence is a losing game since it varies bullet to bullet;
-    # stripping backticks outright is pattern-independent and can't miss.
     md_report = md_report.replace("`", "")
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
