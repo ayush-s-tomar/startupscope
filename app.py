@@ -79,7 +79,7 @@ def run_with_progress(company_name: str) -> str:
             progress_bar.progress(min(overall_pct, 0.95))  # cap at 95 until done
 
             # Animated dots to show liveness
-            dots = "." * ((elapsed % 4) + 1)
+            dots = "." * (int(elapsed) % 4 + 1)
             step_container.caption(
                 f"Step {step_idx + 1}/{total_steps} · "
                 f"{int(step_elapsed)}s elapsed{dots}"
