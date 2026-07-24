@@ -49,7 +49,11 @@ def _format_results(results, source_tag):
         score_label = ""
         if r["_score"] != 0:
             score_label = "[credibility: " + ("+" if r["_score"] > 0 else "") + str(r["_score"]) + "]"
-        snippet = (r.get("snippet") or "N/A")[:100]
+        # 100 chars was cutting most snippets off before any usable fact
+        # (founding year, HQ, team size) appeared -- 320 gives the model
+        # enough to actually extract facts from, still small enough to
+        # keep 2 queries x 5 results well under the token budget.
+        snippet = (r.get("snippet") or "N/A")[:320]
         line = (
             "[" + source_tag + "] " + score_label + "\n"
             "Title:   " + r.get("title", "N/A") + "\n"
@@ -66,7 +70,12 @@ def _search_serper(query):
         raise ValueError("SERPER_API_KEY not set")
 
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    payload = {"q": query, "num": 2}
+    # 2 results per query was leaving research with only ~4 total snippets
+    # to build an entire company profile from. 5 gives real coverage while
+    # still keeping total search text small (this is Python-side, not an
+    # LLM call, so it costs no tokens directly -- it only matters for how
+    # much text ends up pasted into the research prompt).
+    payload = {"q": query, "num": 5}
 
     response = requests.post(
         "https://google.serper.dev/search",
@@ -138,7 +147,7 @@ def _search_duckduckgo(query):
         }
         results.append(entry)
 
-    return results[:2]
+    return results[:5]
 
 
 @tool("search_the_internet")
