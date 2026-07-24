@@ -284,6 +284,48 @@ def _strip_unsupported_total_raised(research_raw, search_text):
     return research_raw
 
 
+_FUNDING_KEYWORDS = re.compile(r"\b(raised|funding|invested|investment|valuation|valued)\b", re.IGNORECASE)
+
+# No private company has genuinely raised anywhere near this much; a match
+# above this is far more likely to be a market cap, revenue figure, or
+# some other unrelated number that got swept in, not real funding.
+_PLAUSIBLE_FUNDING_CAP = 300_000_000_000
+
+
+def _extract_competitor_funding(result_text, name):
+    """
+    Scans result_text sentence by sentence rather than treating the whole
+    blob as one pool of numbers. A search for '<competitor> total funding
+    raised' pulls in a lot of unrelated financial figures (parent company
+    market cap, revenue, unrelated deals) -- taking the single largest
+    number anywhere in that blob picked up exactly this kind of noise
+    (e.g. Google's overall scale showing up as "Google DeepMind funding").
+
+    A sentence only counts as evidence if it contains BOTH the company
+    name and a funding-related keyword ('raised', 'funding', 'invested',
+    etc.) -- so a stray large number elsewhere in the results, with no
+    connection to the company or to funding, is ignored. Values above
+    _PLAUSIBLE_FUNDING_CAP are also rejected outright as more likely to be
+    a misattributed market cap/revenue number than an actual funding
+    total.
+    """
+    name_lower = name.lower()
+    sentences = re.split(r"(?<=[.!?])\s+", result_text)
+    candidates = []
+    for sentence in sentences:
+        if name_lower not in sentence.lower():
+            continue
+        if not _FUNDING_KEYWORDS.search(sentence):
+            continue
+        for v in _parse_money(sentence):
+            if v <= _PLAUSIBLE_FUNDING_CAP:
+                candidates.append(v)
+
+    if not candidates:
+        return None
+    return max(candidates)
+
+
 def _enrich_competitor_funding(analysis_raw, max_competitors=3):
     """
     Competitor funding was always coming back 'Not publicly available' --
@@ -295,10 +337,11 @@ def _enrich_competitor_funding(analysis_raw, max_competitors=3):
 
     This patches that gap directly: once the analysis stage has identified
     who the competitors are, run one small targeted search per competitor
-    and mechanically extract a funding figure from the results, the same
-    way _parse_money/_sanitize_money_field handle the main company's
-    numbers. This does not touch the model at all -- it's a second,
-    narrow, plain-Python search-and-patch step.
+    and mechanically extract a funding figure from the results using
+    _extract_competitor_funding, which requires the number to appear in a
+    sentence that actually mentions both the company and funding -- not
+    just anywhere in the results. This does not touch the model at all --
+    it's a second, narrow, plain-Python search-and-patch step.
     """
     try:
         data = _extract_json(analysis_raw)
@@ -322,20 +365,17 @@ def _enrich_competitor_funding(analysis_raw, max_competitors=3):
         result_text = _call_search_tool(query)
         time.sleep(1)
 
-        values = _parse_money(result_text)
-        if values:
-            # Take the largest figure mentioned -- for funding-total
-            # queries this is reliably the cumulative total rather than a
-            # single round, since rounds are smaller than the running sum.
-            best = max(values)
-            if best >= 1_000_000:  # sanity floor, ignore stray small numbers
-                if best >= 1_000_000_000:
-                    display = "$" + _format_num(best / 1_000_000_000) + "B"
-                else:
-                    display = "$" + _format_num(best / 1_000_000) + "M"
-                print("[crew] enriched competitor funding: '" + name + "' -> '" + display + "'")
-                comp["funding"] = display
-                changed = True
+        best = _extract_competitor_funding(result_text, name)
+        if best is not None and best >= 1_000_000:  # sanity floor
+            if best >= 1_000_000_000:
+                display = "$" + _format_num(best / 1_000_000_000) + "B"
+            else:
+                display = "$" + _format_num(best / 1_000_000) + "M"
+            print("[crew] enriched competitor funding: '" + name + "' -> '" + display + "'")
+            comp["funding"] = display
+            changed = True
+        else:
+            print("[crew] no reliably-attributed funding figure found for '" + name + "' -- leaving as 'Not publicly available'")
 
     if changed:
         data["competitors"] = competitors
