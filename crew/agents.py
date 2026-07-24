@@ -18,11 +18,19 @@ def get_secret(key: str) -> str:
     return os.getenv(key, "")
 
 
+# ── Model selection ──────────────────────────────────────────────────────────
+# Groq tracks token quotas separately PER MODEL. If the primary model's daily
+# quota is exhausted, switching to a different model gives access to its own
+# separate quota bucket — waiting for the same model to reset can take hours.
+PRIMARY_MODEL  = "groq/llama-3.3-70b-versatile"
+FALLBACK_MODEL = "groq/llama-3.1-8b-instant"
+
+
 # ── LLM factory ────────────────────────────────────────────────────────────
 
-def get_llm():
+def get_llm(model: str = None):
     return LLM(
-        model="groq/llama-3.3-70b-versatile",
+        model=model or PRIMARY_MODEL,
         api_key=get_secret("GROQ_API_KEY"),
         temperature=0.3
     )
@@ -37,7 +45,7 @@ def get_llm():
 # (passed to it automatically by CrewAI via Task.context) and returns an
 # enriched JSON object, and the Writer reads that JSON and renders markdown.
 
-def get_researcher():
+def get_researcher(model: str = None):
     """
     Searches the web and returns a single structured JSON object containing
     every researched fact. This JSON *is* the task's output — CrewAI will
@@ -58,7 +66,7 @@ def get_researcher():
             "well-formed JSON — never prose."
         ),
         tools=[search_the_internet],
-        llm=get_llm(),
+        llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
         max_iter=4,
@@ -66,7 +74,7 @@ def get_researcher():
     )
 
 
-def get_analyst():
+def get_analyst(model: str = None):
     """
     Receives the Researcher's JSON output (via Task.context) and returns an
     enriched JSON object: the original fields plus strengths, risks,
@@ -89,7 +97,7 @@ def get_analyst():
             "never write generic filler — every claim traces back to a fact you were "
             "actually given."
         ),
-        llm=get_llm(),
+        llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
         max_iter=3,
@@ -97,7 +105,7 @@ def get_analyst():
     )
 
 
-def get_writer():
+def get_writer(model: str = None):
     """
     Receives the Analyst's fully-enriched JSON object (via Task.context) and
     renders it into the final markdown intelligence report.
@@ -117,7 +125,7 @@ def get_writer():
             "briefs. You write for busy founders and investors who need facts fast, and "
             "you never pad a report with information you weren't actually given."
         ),
-        llm=get_llm(),
+        llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
         max_iter=2,

@@ -1,5 +1,5 @@
 from crewai import Crew, Process
-from crew.agents import get_researcher, get_analyst, get_writer
+from crew.agents import get_researcher, get_analyst, get_writer, PRIMARY_MODEL, FALLBACK_MODEL
 from crew.tasks import get_research_task, get_analysis_task, get_writing_task
 import time
 import json
@@ -205,6 +205,12 @@ _RATE_LIMIT_ERRORS = (
     "429",
     "too many requests",
 )
+_QUOTA_EXHAUSTED_ERRORS = (
+    "tokens per day",
+    "requests per day",
+    "tpd)",
+    "rpd)",
+)
 _BASE_BACKOFF = 2
 _MAX_BACKOFF  = 30
 
@@ -213,6 +219,12 @@ def _classify_error(error_msg: str) -> str:
     msg = error_msg.lower()
     if any(e in msg for e in _TOOL_CALL_ERRORS):
         return "tool_call"
+    # Check quota (daily) before rate_limit (per-minute) — both mention
+    # "rate limit" in the message text, but only quota errors mention a
+    # daily window; that distinction is what decides whether we should
+    # wait or switch models.
+    if any(e in msg for e in _QUOTA_EXHAUSTED_ERRORS):
+        return "quota_exhausted"
     if any(e in msg for e in _RATE_LIMIT_ERRORS):
         return "rate_limit"
     return "unknown"
@@ -254,13 +266,14 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
     """
     total_attempts = max_retries + 1
     last_error     = None
+    current_model  = PRIMARY_MODEL
 
     for attempt in range(1, total_attempts + 1):
         try:
             # ── Build agents & tasks ─────────────────────────────────────────
-            researcher = get_researcher()
-            analyst    = get_analyst()
-            writer     = get_writer()
+            researcher = get_researcher(model=current_model)
+            analyst    = get_analyst(model=current_model)
+            writer     = get_writer(model=current_model)
 
             research_task = get_research_task(researcher, company_name)
             analysis_task = get_analysis_task(analyst, company_name)
@@ -300,7 +313,19 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
             last_error = e
             error_msg  = str(e)
             error_type = _classify_error(error_msg)
-            wait       = _backoff(attempt, error_type, error_msg)
+
+            # ── Daily quota exhausted on this model: switch models instead of
+            # waiting. Groq tracks token quotas separately per model, so the
+            # fallback model has its own untouched daily budget. ─────────────
+            if error_type == "quota_exhausted" and current_model != FALLBACK_MODEL:
+                print(
+                    f"[Attempt {attempt}/{total_attempts}] Daily quota exhausted on "
+                    f"{current_model} — switching to {FALLBACK_MODEL} and retrying..."
+                )
+                current_model = FALLBACK_MODEL
+                wait = 1.0
+            else:
+                wait = _backoff(attempt, error_type, error_msg)
 
             if attempt < total_attempts:
                 print(
