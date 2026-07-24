@@ -70,7 +70,13 @@ def get_researcher(model=None):
         llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
-        max_iter=3,
+        # Must be >= (number of searches the task requests) + 1 for the
+        # final JSON answer. The task asks for 4+ searches; max_iter=3 was
+        # cutting the agent off mid-search, CrewAI then forced
+        # tool_choice="none" to make it answer, but the model still tried
+        # to call a tool -- Groq hard-rejects that combination
+        # (tool_use_failed) and it's not retryable, it fails every time.
+        max_iter=6,
         max_rpm=_rpm_for(model),
         memory=True
     )
