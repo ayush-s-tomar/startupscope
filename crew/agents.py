@@ -5,10 +5,20 @@ import os
 
 load_dotenv()
 
+
+# ── Secrets helper ───────────────────────────────────────────────────────────
+# Works both locally (.env via os.getenv) and on Streamlit Cloud (st.secrets).
+def get_secret(key: str) -> str:
+    try:
+        import streamlit as st
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, "")
+
+
 # ── Shared structured context dict ─────────────────────────────────────────
-# Agents write to this during execution so downstream agents receive typed,
-# structured data rather than unstructured prose.
-# crew.py calls reset_context() before every run to wipe stale data.
 agent_context: dict = {
     "company_name":         "",
     "product_summary":      "",
@@ -20,19 +30,15 @@ agent_context: dict = {
         "last_round":       "",
         "investors":        []
     },
-    "competitors":          [],   # list of {"name": str, "model": str, "funding": str}
-    "recent_news":          [],   # list of {"headline": str, "date": str, "source": str}
+    "competitors":          [],
+    "recent_news":          [],
     "tech_stack":           [],
     "growth_metrics":       "",
     "strengths":            [],
     "risks":                [],
     "market_opportunity":   "",
     "competitive_position": "",
-    "verdict":              "",   # "Promising" | "Neutral" | "Risky"
-    # ── Bundle 4 additions ──────────────────────────────────────────────────
-    # These mirror the JSON schema fields in crew.py so the context dict and
-    # the exported JSON always have the same shape. The writer populates them;
-    # _parse_markdown_to_schema() in crew.py reads them as a fallback.
+    "verdict":              "",
     "what_they_do":         "",
     "business_model":       "",
     "verdict_rationale":    ""
@@ -65,7 +71,6 @@ def reset_context(company_name: str) -> None:
         "market_opportunity":   "",
         "competitive_position": "",
         "verdict":              "",
-        # Bundle 4 schema fields
         "what_they_do":         "",
         "business_model":       "",
         "verdict_rationale":    ""
@@ -77,7 +82,7 @@ def reset_context(company_name: str) -> None:
 def get_llm():
     return LLM(
         model="groq/llama-3.3-70b-versatile",
-        api_key=os.getenv("GROQ_API_KEY"),
+        api_key=get_secret("GROQ_API_KEY"),
         temperature=0.3
     )
 
@@ -85,11 +90,6 @@ def get_llm():
 # ── Agent factories ────────────────────────────────────────────────────────
 
 def get_researcher():
-    """
-    Searches the web and writes all raw findings into agent_context so the
-    Analyst and Writer can consume typed data rather than raw prose.
-    Bundle 4: also populates what_they_do and tech_stack for JSON export.
-    """
     return Agent(
         role="Startup Research Specialist",
         goal=(
@@ -116,12 +116,6 @@ def get_researcher():
 
 
 def get_analyst():
-    """
-    Consumes agent_context populated by the researcher and writes its own
-    findings (strengths, risks, verdict, business_model, verdict_rationale)
-    back into the same context dict.
-    Bundle 4: also populates business_model and verdict_rationale for JSON export.
-    """
     return Agent(
         role="Business Intelligence Analyst",
         goal=(
@@ -149,11 +143,6 @@ def get_analyst():
 
 
 def get_writer():
-    """
-    Reads the fully-populated agent_context and renders the final markdown report.
-    Bundle 4: the report structure matches the JSON schema in crew.py exactly,
-    so _parse_markdown_to_schema() can extract every field cleanly.
-    """
     return Agent(
         role="Intelligence Report Writer",
         goal=(

@@ -3,6 +3,5 @@ crewai-tools
 langchain-groq
 streamlit
 python-dotenv
-litellm
-tiktoken==0.7.0 --only-binary :all:
 litellm==1.57.4
+tiktoken==0.7.0

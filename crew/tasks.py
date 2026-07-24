@@ -1,5 +1,5 @@
 from crewai import Task
-from agents import agent_context
+from crew.agents import agent_context
 
 
 # ── Helper ─────────────────────────────────────────────────────────────────

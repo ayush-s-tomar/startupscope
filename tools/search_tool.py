@@ -5,33 +5,37 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Credibility scoring ─────────────────────────────────────────────────────
-# Domains are grouped into tiers. Any domain not listed scores 0 (neutral).
-# Score is added to each result so agents see best sources first.
 
+# ── Secrets helper ───────────────────────────────────────────────────────────
+def get_secret(key: str) -> str:
+    try:
+        import streamlit as st
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, "")
+
+
+# ── Credibility scoring ─────────────────────────────────────────────────────
 _DOMAIN_SCORES = {
-    # Tier 1 — primary startup/finance sources (score: 3)
     "crunchbase.com": 3, "techcrunch.com": 3, "bloomberg.com": 3,
     "reuters.com": 3, "forbes.com": 3, "inc.com": 3,
     "wsj.com": 3, "ft.com": 3, "businessinsider.com": 3,
 
-    # Tier 2 — good secondary sources (score: 2)
     "linkedin.com": 2, "tracxn.com": 2, "pitchbook.com": 2,
     "venturebeat.com": 2, "wired.com": 2, "theverge.com": 2,
     "economictimes.com": 2, "yourstory.com": 2, "entrackr.com": 2,
     "moneycontrol.com": 2, "livemint.com": 2,
 
-    # Tier 3 — acceptable general sources (score: 1)
     "wikipedia.org": 1, "medium.com": 1, "substack.com": 1,
     "github.com": 1, "producthunt.com": 1,
 
-    # Tier -1 — low-quality / SEO spam (deprioritise)
     "quora.com": -1, "reddit.com": -1,
 }
 
 
 def _score(link: str) -> int:
-    """Return credibility score for a URL based on its domain."""
     if not link:
         return 0
     for domain, score in _DOMAIN_SCORES.items():
@@ -41,7 +45,6 @@ def _score(link: str) -> int:
 
 
 def _format_results(results: list[dict], source_tag: str) -> str:
-    """Sort by credibility score and format as readable text for agents."""
     scored = sorted(results, key=lambda r: r.get("_score", 0), reverse=True)
     lines = []
     for r in scored:
@@ -59,7 +62,7 @@ def _format_results(results: list[dict], source_tag: str) -> str:
 
 def _search_serper(query: str) -> list[dict]:
     """Primary source — Google via Serper API."""
-    api_key = os.getenv("SERPER_API_KEY")
+    api_key = get_secret("SERPER_API_KEY")
     if not api_key:
         raise ValueError("SERPER_API_KEY not set")
 
@@ -103,9 +106,7 @@ def _search_duckduckgo(query: str) -> list[dict]:
 
     results = []
 
-    # RelatedTopics is DDG's main result list
     for item in data.get("RelatedTopics", []):
-        # Some items are topic groups with nested Topics
         if "Topics" in item:
             for sub in item["Topics"]:
                 link = sub.get("FirstURL", "")
@@ -128,7 +129,6 @@ def _search_duckduckgo(query: str) -> list[dict]:
                     "_score":  _score(link)
                 })
 
-    # Also grab the abstract if available (Wikipedia-style summary)
     abstract = data.get("AbstractText", "")
     abstract_url = data.get("AbstractURL", "")
     if abstract:
@@ -139,7 +139,7 @@ def _search_duckduckgo(query: str) -> list[dict]:
             "_score":  _score(abstract_url)
         })
 
-    return results[:6]  # cap to match Serper result count
+    return results[:6]
 
 
 # ── Public tool ─────────────────────────────────────────────────────────────
@@ -151,7 +151,6 @@ def search_the_internet(query: str) -> str:
     Uses Serper (Google) as primary source with automatic DuckDuckGo fallback.
     Results are ranked by source credibility before being returned to the agent.
     """
-    # ── Step 1: Try Serper ──────────────────────────────────────────────────
     serper_results = []
     serper_error   = None
 
@@ -164,7 +163,6 @@ def search_the_internet(query: str) -> str:
         output = _format_results(serper_results, source_tag="Serper/Google")
         return output or "No results found via Serper."
 
-    # ── Step 2: Serper failed — fall back to DuckDuckGo ────────────────────
     print(f"[search_tool] Serper unavailable ({serper_error}) — switching to DuckDuckGo.")
 
     try:
