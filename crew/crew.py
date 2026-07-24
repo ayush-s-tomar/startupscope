@@ -53,6 +53,7 @@ def _call_search_tool(query):
 
 def _run_searches(company_name):
     queries = [
+        company_name + " what is it company overview product description",
         company_name + " funding investors business model",
         company_name + " competitors news 2024 2025",
         company_name + " founded headquarters employees team size",
@@ -512,7 +513,7 @@ def run_crew(company_name, max_retries=4):
     print("[crew] Searching (plain Python, no tokens spent here)...")
     search_text = _run_searches(company_name)
 
-    failure_reason = _check_search_health(search_text, queries_run=5)
+    failure_reason = _check_search_health(search_text, queries_run=6)
     if failure_reason:
         print("[crew] ABORTING before LLM calls -- all searches failed: " + failure_reason)
         md_report, schema = _build_search_failure_report(company_name, failure_reason)

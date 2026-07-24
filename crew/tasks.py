@@ -91,6 +91,14 @@ competitors[] (each: name, model, funding — up to 3),
 recent_news[] (each: headline, date, source — up to 3),
 tech_stack[], growth_metrics.
 
+product_summary is a 1-2 sentence description of what the company actually
+does/builds/sells. Look across ALL search results for this, not just any
+single query's results -- a general description often appears in results
+from an unrelated-looking query (e.g. a funding article's opening
+sentence often describes the product too). Only use "Not publicly
+available" for product_summary if truly no sentence anywhere in the
+search results describes what the company does.
+
 If a field isn't in the search results, use "Not publicly available" (or []
 for lists) — never omit a key.
     """
