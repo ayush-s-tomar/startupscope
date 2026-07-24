@@ -476,35 +476,49 @@ _BANNED_INFRA_PHRASES = [
 ]
 
 
+# ── UPDATED: money-bleed pattern broadened past the single literal phrase
+# "and a recent" to also catch "including a recent", "at a", "with a
+# recent", etc. -- the same underlying model slip (a clean money value
+# getting a trailing prose fragment glued onto it) shows up with several
+# different connector words, and the old pattern only caught one of them.
 _MONEY_BLEED_PATTERN = re.compile(
-    r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)\s+(?:total\s+funding|funding|raised)?\s*and\s+a\s+recent[^.,;]*",
+    r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)"
+    r"(?:\s*,)?\s*"
+    r"(?:including|and|at|with|raised in|following|via)\s+a\s*"
+    r"(?:recent\s+)?[^.,;()]*",
     re.IGNORECASE,
 )
 
 
 def _scrub_money_bleed(md_report):
     """
-    The prose-bleed bug (a garbled money fragment like '132B and a recent
-    Series H round' getting glued mid-sentence) was originally only fixed
-    for the two structured fields (total_raised/last_round) via
-    _sanitize_money_field. But the same tendency shows up anywhere the
-    model writes free-text prose that mentions funding -- e.g. inside a
-    strengths[] bullet -- which that field-level fix never touches. This
-    is a last-resort mechanical scrub over the FINAL rendered report text,
-    catching the same 'money fragment + and a recent...' shape wherever it
-    appears and collapsing it down to just the clean money value.
+    Catches garbled money fragments like '2.76B, including a recent 1B
+    round' or '1B at a 16B valuation' getting glued mid-sentence anywhere
+    in the FINAL rendered report text -- not just the two structured
+    total_raised/last_round fields (those are handled separately by
+    _sanitize_money_field). This is a last-resort mechanical scrub over
+    the FINAL rendered report text, catching the same 'money fragment +
+    trailing prose describing a round' shape wherever it appears and
+    collapsing it down to just the clean money value. Broadened to catch
+    several connector words (including/at/with/etc.), not just the single
+    literal phrase "and a recent" the original version matched -- that
+    narrowness was letting real cases (e.g. "including a recent", "at a")
+    slip through untouched. Also normalizes a missing space if the scrub
+    leaves a money value directly butted against an opening parenthesis.
     """
     def _clean_match(m):
         money = re.search(r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)", m.group(0), re.IGNORECASE)
         if not money:
-            return ""
+            return m.group(0)
         val = money.group(0)
         if not val.startswith("$"):
             val = "$" + val
         print("[crew] scrubbed money-bleed from report: '" + m.group(0) + "' -> '" + val + "'")
         return val
 
-    return _MONEY_BLEED_PATTERN.sub(_clean_match, md_report)
+    cleaned = _MONEY_BLEED_PATTERN.sub(_clean_match, md_report)
+    cleaned = re.sub(r"(\$\d+(?:\.\d+)?[BM])\(", r"\1 (", cleaned)
+    return cleaned
 
 
 def _scrub_unsupported_infra_claims(md_report, search_text):
