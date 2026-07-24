@@ -24,6 +24,12 @@ _MAX_RPM = {
     FALLBACK_MODEL: 8,
 }
 
+# Both models share ONE 8000 TPM pool at the org level on Groq's free tier --
+# this is not per-model. Capping max_tokens on every call keeps any single
+# completion from eating most of that shared budget and starving the next
+# stage in the same 60s window.
+_MAX_OUTPUT_TOKENS = 900
+
 
 def _rpm_for(model):
     return _MAX_RPM.get(model, 8)
@@ -33,7 +39,8 @@ def get_llm(model=None):
     return LLM(
         model=model or PRIMARY_MODEL,
         api_key=get_secret("GROQ_API_KEY"),
-        temperature=0.3
+        temperature=0.3,
+        max_tokens=_MAX_OUTPUT_TOKENS
     )
 
 
@@ -63,7 +70,7 @@ def get_researcher(model=None):
         llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
-        max_iter=4,
+        max_iter=3,
         max_rpm=_rpm_for(model),
         memory=True
     )
@@ -95,7 +102,7 @@ def get_analyst(model=None):
         llm=get_llm(model),
         verbose=True,
         allow_delegation=False,
-        max_iter=3,
+        max_iter=2,
         max_rpm=_rpm_for(model),
         memory=True
     )

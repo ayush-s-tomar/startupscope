@@ -240,15 +240,18 @@ def run_crew(company_name, max_retries=4):
 
             _run_stage([researcher], [research_task], current_model, "research")
 
-            # Both PRIMARY_MODEL and FALLBACK_MODEL share the same 8000 TPM
-            # cap on Groq's free tier, so both need the full cooldown to let
-            # the 60s TPM window actually clear before the next call.
-            cooldown_1 = 35
+            # Groq's 8000 TPM cap is a single ORG-WIDE rolling 60s window,
+            # shared by both models -- switching models never frees budget,
+            # and any cooldown shorter than 60s can still collide with
+            # tokens from the previous call that haven't aged out yet.
+            # Waiting the full window is the only wait that's guaranteed
+            # correct regardless of how much the prior stage used.
+            cooldown_1 = 60
             time.sleep(cooldown_1)
 
             _run_stage([analyst], [analysis_task], current_model, "analysis")
 
-            cooldown_2 = 30
+            cooldown_2 = 60
             time.sleep(cooldown_2)
 
             result = _run_stage([writer], [writing_task], current_model, "writing")
