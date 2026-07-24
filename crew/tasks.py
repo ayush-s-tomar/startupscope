@@ -1,58 +1,66 @@
-from crewai import Task
-
-
-# ── Task factories ──────────────────────────────────────────────────────────
+# ── Prompt builders ─────────────────────────────────────────────────────────
 #
-# Each task's real output is data, not a side-effect. CrewAI passes a task's
-# output text to any later task listed in that task's `.context` — that's the
-# only reliable channel for handing data between agents.
-#
-# NOTE: descriptions here are intentionally terse. Every extra token in these
-# strings is repeated on every retry across 3 stages, which is what was
-# blowing the 8000 TPM cap. Keep additions minimal.
+# These return plain strings, not CrewAI Task objects. Each one is fed into
+# a single flat call_llm() call in crew.py -- no agent loop, no tool-calling
+# inside the LLM call itself. Search happens separately in Python (see
+# crew.py's _run_searches), and its raw text results are pasted directly
+# into the research prompt below.
 
-def get_research_task(agent, company_name: str):
-    """
-    Task 1 — the Researcher runs searches and returns a single JSON object.
-    This JSON becomes the task's output, which crew.py wires into the
-    Analysis task's context.
-    """
-    return Task(
-        description=f"""
-Research the company: {company_name}.
+RESEARCH_SYSTEM = (
+    "You are an expert startup analyst. You are meticulous about separating "
+    "facts from speculation and always return clean, valid JSON, never prose. "
+    "You never conflate an investor relationship with an infrastructure or "
+    "technology partnership -- those are different things and you keep them "
+    "distinct. Only include a fact if it is explicitly present in the search "
+    "results you were given -- do not infer cloud/infra partners, tech stack, "
+    "or API compatibility from indirect context (e.g. an investor is not "
+    "automatically an infra partner)."
+)
 
-Run 2 web searches: one for funding/investors/business model, one for
-recent news and competitors (2024-2025).
+ANALYSIS_SYSTEM = (
+    "You are a senior business analyst evaluating startups for Series A/B "
+    "investment decisions. Base every insight strictly on the data you are "
+    "given, never invent figures or use outside knowledge. You never confuse "
+    "an investor relationship with a technical or infrastructure partnership."
+)
 
-Output ONLY valid JSON, no prose, no fences, with exactly these keys:
+WRITER_SYSTEM = (
+    "You are a technical writer producing investment memos. You never pad a "
+    "report with information you weren't given, especially technical claims "
+    "about infrastructure or APIs that could be factually wrong."
+)
+
+
+def build_research_prompt(company_name, search_results_text):
+    return f"""
+Company: {company_name}
+
+Raw web search results below. Extract facts ONLY from this text -- do not
+use outside knowledge.
+
+--- SEARCH RESULTS ---
+{search_results_text}
+--- END SEARCH RESULTS ---
+
+Output ONLY valid JSON, no prose, no markdown fences, with exactly these keys:
 company_name, product_summary, founded, hq, team_size,
 funding {{total_raised, last_round, investors[]}},
 competitors[] (each: name, model, funding — up to 3),
 recent_news[] (each: headline, date, source — up to 3),
 tech_stack[], growth_metrics.
 
-If a field can't be found, use "Not publicly available" (or [] for lists) —
-never omit a key. Only include a fact if a search result explicitly states
-it — do not infer cloud/infra partners, tech stack, or API compatibility
-from indirect context (e.g. an investor is not automatically an infra
-partner).
-        """,
-        agent=agent,
-        expected_output=(
-            "A single valid JSON object with the exact keys described above, "
-            "populated from real search results. JSON only, no prose/fences."
-        )
-    )
+If a field isn't in the search results, use "Not publicly available" (or []
+for lists) — never omit a key.
+    """
 
 
-def get_analysis_task(agent, company_name: str):
-    """
-    Task 2 — the Analyst receives the Researcher's JSON (via context) and
-    returns an enriched JSON object with analysis fields added.
-    """
-    return Task(
-        description=f"""
-Parse the research JSON for {company_name} in your task context.
+def build_analysis_prompt(company_name, research_json_text):
+    return f"""
+Company: {company_name}
+
+Research data (JSON) below:
+
+{research_json_text}
 
 Return a NEW JSON object with all original fields unchanged, plus:
 strengths[] (2, specific), risks[] (2, specific), market_opportunity
@@ -60,31 +68,23 @@ strengths[] (2, specific), risks[] (2, specific), market_opportunity
 business_model (2-3 sentences), verdict ("Promising"|"Neutral"|"Risky"),
 verdict_rationale (2-3 sentences).
 
-Base every insight strictly on the given data — never invent figures or use
-outside knowledge. If a source field is "Not publicly available" or empty,
-reflect that honestly rather than guessing. Do not state or imply any cloud
-provider, infrastructure partnership, or API compatibility claim unless it
-appears explicitly in the research data — omit rather than infer.
+Base every insight strictly on the data above. If a source field is
+"Not publicly available" or empty, reflect that honestly rather than
+guessing. Do not state or imply any cloud provider, infrastructure
+partnership, or API compatibility claim unless it appears explicitly in the
+data above.
 
 Output ONLY the JSON object, no prose, no fences.
-        """,
-        agent=agent,
-        expected_output=(
-            "A single valid JSON object containing all original research fields "
-            "plus strengths, risks, market_opportunity, competitive_position, "
-            "business_model, verdict, and verdict_rationale. JSON only."
-        )
-    )
+    """
 
 
-def get_writing_task(agent, company_name: str):
-    """
-    Task 3 — the Writer receives the Analyst's fully-enriched JSON (via
-    context) and renders the final markdown report.
-    """
-    return Task(
-        description=f"""
-Parse the enriched JSON for {company_name} in your task context.
+def build_writing_prompt(company_name, analysis_json_text):
+    return f"""
+Company: {company_name}
+
+Enriched data (JSON) below:
+
+{analysis_json_text}
 
 Render this exact markdown structure, filling every placeholder with real
 values from the JSON:
@@ -130,11 +130,4 @@ values from the JSON:
 Rules: use only actual JSON values, never invent data. If a field is
 missing/empty/"Not publicly available", write "Data unavailable" for that
 part. Keep Quick Facts as a markdown table.
-        """,
-        agent=agent,
-        expected_output=(
-            "A complete, formatted markdown intelligence report with all 9 sections "
-            "populated from the JSON data you were given. No unresolved placeholders. "
-            "The Quick Facts section must be a markdown table."
-        )
-    )
+    """

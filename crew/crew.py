@@ -1,39 +1,69 @@
-from crewai import Crew, Process
-from crew.agents import get_researcher, get_analyst, get_writer, PRIMARY_MODEL, FALLBACK_MODEL
-from crew.tasks import get_research_task, get_analysis_task, get_writing_task
-import time
 import json
 import re
 import os
+import time
 from datetime import datetime
+
+from agents import call_llm_with_retry
+from tasks import (
+    RESEARCH_SYSTEM, ANALYSIS_SYSTEM, WRITER_SYSTEM,
+    build_research_prompt, build_analysis_prompt, build_writing_prompt
+)
+
+try:
+    from tools.search_tool import search_the_internet
+except ImportError:
+    search_the_internet = None
 
 
 OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 
-def _empty_schema(company_name):
-    return {
-        "company": company_name,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
-        "overview": "",
-        "quick_facts": {
-            "founded": "",
-            "hq": "",
-            "team_size": "",
-            "total_raised": "",
-            "last_round": ""
-        },
-        "what_they_do": "",
-        "business_model": "",
-        "strengths": [],
-        "risks": [],
-        "competitors": [],
-        "recent_news": [],
-        "verdict": "",
-        "verdict_rationale": ""
-    }
+# ── Search: plain Python, no LLM involved, no tokens spent here ────────────
 
+def _call_search_tool(query):
+    """
+    Tries the common CrewAI tool invocation styles in order, since the
+    exact interface of tools/search_tool.py wasn't available while writing
+    this. If none of these match, this is the one function to fix.
+    """
+    if search_the_internet is None:
+        return "(search tool unavailable: tools/search_tool.py not found)"
+
+    attempts = [
+        lambda: search_the_internet._run(query=query),
+        lambda: search_the_internet._run(query),
+        lambda: search_the_internet.run(query=query),
+        lambda: search_the_internet.run(query),
+        lambda: search_the_internet.func(query),
+        lambda: search_the_internet(query),
+    ]
+    last_error = None
+    for attempt in attempts:
+        try:
+            result = attempt()
+            if result:
+                return str(result)
+        except Exception as e:
+            last_error = e
+            continue
+    return "(search failed for query '" + query + "': " + str(last_error) + ")"
+
+
+def _run_searches(company_name):
+    queries = [
+        company_name + " funding investors business model",
+        company_name + " competitors news 2024 2025",
+    ]
+    results = []
+    for q in queries:
+        results.append("Query: " + q + "\n" + _call_search_tool(q))
+        time.sleep(1)
+    return "\n\n".join(results)
+
+
+# ── JSON helpers ─────────────────────────────────────────────────────────
 
 def _extract_json(text):
     text = text.strip()
@@ -45,6 +75,26 @@ def _extract_json(text):
     if start != -1 and end != -1 and end > start:
         text = text[start:end + 1]
     return json.loads(text)
+
+
+def _empty_schema(company_name):
+    return {
+        "company": company_name,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "overview": "",
+        "quick_facts": {
+            "founded": "", "hq": "", "team_size": "",
+            "total_raised": "", "last_round": ""
+        },
+        "what_they_do": "",
+        "business_model": "",
+        "strengths": [],
+        "risks": [],
+        "competitors": [],
+        "recent_news": [],
+        "verdict": "",
+        "verdict_rationale": ""
+    }
 
 
 def _schema_from_analysis_json(analysis_raw, company_name):
@@ -73,65 +123,6 @@ def _schema_from_analysis_json(analysis_raw, company_name):
     return schema
 
 
-def _parse_markdown_to_schema(md, company_name):
-    schema = _empty_schema(company_name)
-
-    def _between(md, start_header, end_headers):
-        pattern = r"##\s+" + re.escape(start_header) + r"\s*\n(.*?)(?=\n##\s+(?:" + "|".join(end_headers) + r")|$)"
-        m = re.search(pattern, md, re.DOTALL | re.IGNORECASE)
-        return m.group(1).strip() if m else ""
-
-    all_sections = [
-        "Overview", "Quick Facts", "What They Do", "Business Model",
-        "Strengths", "Risks", "Competitive Landscape", "Recent News", "Verdict"
-    ]
-
-    schema["overview"] = _between(md, "Overview", all_sections[1:])
-
-    qf_block = _between(md, "Quick Facts", all_sections[2:])
-    for line in qf_block.splitlines():
-        row = [c.strip() for c in line.split("|") if c.strip()]
-        if len(row) == 2:
-            key, val = row[0].lower(), row[1]
-            if "founded" in key:
-                schema["quick_facts"]["founded"] = val
-            elif "hq" in key:
-                schema["quick_facts"]["hq"] = val
-            elif "team" in key:
-                schema["quick_facts"]["team_size"] = val
-            elif "raised" in key:
-                schema["quick_facts"]["total_raised"] = val
-            elif "round" in key:
-                schema["quick_facts"]["last_round"] = val
-
-    schema["what_they_do"] = _between(md, "What They Do", all_sections[4:])
-    schema["business_model"] = _between(md, "Business Model", all_sections[5:])
-
-    s_block = _between(md, "Strengths", all_sections[6:])
-    schema["strengths"] = [
-        line.lstrip("-*").strip()
-        for line in s_block.splitlines()
-        if line.strip().startswith(("-", "*"))
-    ]
-
-    r_block = _between(md, "Risks", all_sections[7:])
-    schema["risks"] = [
-        line.lstrip("-*").strip()
-        for line in r_block.splitlines()
-        if line.strip().startswith(("-", "*"))
-    ]
-
-    v_block = _between(md, "Verdict", [])
-    for word in ["Promising", "Neutral", "Risky"]:
-        if word.lower() in v_block.lower():
-            schema["verdict"] = word
-            break
-    rationale = re.sub(r"\*\*(Promising|Neutral|Risky)\*\*", "", v_block).strip()
-    schema["verdict_rationale"] = rationale
-
-    return schema
-
-
 def _timestamp():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -143,156 +134,46 @@ def _safe_name(company_name):
 def _save_outputs(company_name, md_report, schema):
     ts = _timestamp()
     base = _safe_name(company_name) + "_" + ts
-
     md_path = os.path.join(OUTPUTS_DIR, base + ".md")
     json_path = os.path.join(OUTPUTS_DIR, base + ".json")
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_report)
-
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(schema, f, indent=2, ensure_ascii=False)
 
     return {"md": md_path, "json": json_path}
 
 
-_TOOL_CALL_ERRORS = (
-    "tool call validation failed",
-    "tool_use_failed",
-    "invalid_request_error",
-)
-_RATE_LIMIT_ERRORS = (
-    "rate_limit_exceeded",
-    "429",
-    "too many requests",
-)
-_QUOTA_EXHAUSTED_ERRORS = (
-    "tokens per day",
-    "requests per day",
-    "tpd)",
-    "rpd)",
-)
-_BASE_BACKOFF = 2
-_MAX_BACKOFF = 65
-
-
-def _classify_error(error_msg):
-    msg = error_msg.lower()
-    if any(e in msg for e in _TOOL_CALL_ERRORS):
-        return "tool_call"
-    if any(e in msg for e in _QUOTA_EXHAUSTED_ERRORS):
-        return "quota_exhausted"
-    if any(e in msg for e in _RATE_LIMIT_ERRORS):
-        return "rate_limit"
-    return "unknown"
-
-
-def _suggested_wait(error_msg):
-    ms_match = re.search(r"try again in\s+([\d.]+)ms", error_msg, re.IGNORECASE)
-    if ms_match:
-        seconds = float(ms_match.group(1)) / 1000.0
-        return max(seconds + 5.0, 10.0)
-
-    s_match = re.search(r"try again in\s+([\d.]+)s", error_msg, re.IGNORECASE)
-    if s_match:
-        return float(s_match.group(1)) + 3.0
-
-    return 0.0
-
-
-def _backoff(attempt, error_type, error_msg=""):
-    if error_type == "rate_limit":
-        suggested = _suggested_wait(error_msg)
-        if suggested:
-            return suggested
-        return min(15 * (2 ** (attempt - 1)), _MAX_BACKOFF)
-    return min(_BASE_BACKOFF * (2 ** (attempt - 1)), _MAX_BACKOFF)
-
-
-def _run_stage(agents, tasks, current_model, stage_name):
-    stage_crew = Crew(
-        agents=agents,
-        tasks=tasks,
-        process=Process.sequential,
-        verbose=True
-    )
-    print("[crew] Running stage: " + stage_name + " on " + current_model)
-    return stage_crew.kickoff()
-
+# ── Main pipeline: 3 flat calls, nothing else touches the LLM ─────────────
 
 def run_crew(company_name, max_retries=4):
-    total_attempts = max_retries + 1
-    last_error = None
-    current_model = PRIMARY_MODEL
+    print("[crew] Searching (plain Python, no tokens spent here)...")
+    search_text = _run_searches(company_name)
 
-    for attempt in range(1, total_attempts + 1):
-        try:
-            researcher = get_researcher(model=current_model)
-            analyst = get_analyst(model=current_model)
-            writer = get_writer(model=current_model)
+    print("[crew] Stage 1/3: research (1 flat LLM call)...")
+    research_prompt = build_research_prompt(company_name, search_text)
+    research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries)
 
-            research_task = get_research_task(researcher, company_name)
-            analysis_task = get_analysis_task(analyst, company_name)
-            writing_task = get_writing_task(writer, company_name)
+    # Small real cooldown between stages -- with flat single calls (no
+    # compounding loop), a short wait is enough; there's no growing
+    # conversation eating the window from within a stage anymore.
+    time.sleep(15)
 
-            analysis_task.context = [research_task]
-            writing_task.context = [research_task, analysis_task]
+    print("[crew] Stage 2/3: analysis (1 flat LLM call)...")
+    analysis_prompt = build_analysis_prompt(company_name, research_raw)
+    analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries)
 
-            _run_stage([researcher], [research_task], current_model, "research")
+    time.sleep(15)
 
-            # Groq's 8000 TPM cap is a single ORG-WIDE rolling 60s window,
-            # shared by both models -- switching models never frees budget,
-            # and any cooldown shorter than 60s can still collide with
-            # tokens from the previous call that haven't aged out yet.
-            # Waiting the full window is the only wait that's guaranteed
-            # correct regardless of how much the prior stage used.
-            cooldown_1 = 60
-            time.sleep(cooldown_1)
+    print("[crew] Stage 3/3: writing (1 flat LLM call)...")
+    writing_prompt = build_writing_prompt(company_name, analysis_raw)
+    md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries)
 
-            _run_stage([analyst], [analysis_task], current_model, "analysis")
+    schema = _schema_from_analysis_json(analysis_raw, company_name)
+    saved_paths = _save_outputs(company_name, md_report, schema)
 
-            cooldown_2 = 60
-            time.sleep(cooldown_2)
+    print("[crew] Saved: " + saved_paths["md"])
+    print("[crew] Saved: " + saved_paths["json"])
 
-            result = _run_stage([writer], [writing_task], current_model, "writing")
-            md_report = str(result)
-
-            analysis_raw = getattr(analysis_task.output, "raw", "") or ""
-            schema = _schema_from_analysis_json(analysis_raw, company_name)
-            if not any([schema["strengths"], schema["risks"], schema["verdict"]]):
-                schema = _parse_markdown_to_schema(md_report, company_name)
-
-            saved_paths = _save_outputs(company_name, md_report, schema)
-
-            print("[crew] Saved: " + saved_paths["md"])
-            print("[crew] Saved: " + saved_paths["json"])
-
-            return md_report, saved_paths
-
-        except Exception as e:
-            last_error = e
-            error_msg = str(e)
-            error_type = _classify_error(error_msg)
-
-            should_switch = (
-                current_model != FALLBACK_MODEL and (
-                    error_type == "quota_exhausted"
-                    or (error_type == "rate_limit" and attempt >= 2)
-                )
-            )
-
-            if should_switch:
-                reason = "Daily quota exhausted" if error_type == "quota_exhausted" else "Repeated TPM rate limits"
-                print("[Attempt " + str(attempt) + "/" + str(total_attempts) + "] " + reason + " on " + current_model + " -- switching to " + FALLBACK_MODEL)
-                current_model = FALLBACK_MODEL
-                wait = 2.0
-            else:
-                wait = _backoff(attempt, error_type, error_msg)
-
-            if attempt < total_attempts:
-                print("[Attempt " + str(attempt) + "/" + str(total_attempts) + "] " + error_type + " -- retrying in " + str(round(wait)) + "s")
-                time.sleep(wait)
-            else:
-                raise RuntimeError(
-                    "Failed after " + str(attempt) + " attempt(s) for '" + company_name + "'. Last error (" + error_type + "): " + error_msg
-                ) from last_error
+    return md_report, saved_paths

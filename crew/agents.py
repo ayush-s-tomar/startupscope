@@ -1,7 +1,7 @@
-from crewai import Agent, LLM
-from tools.search_tool import search_the_internet
-from dotenv import load_dotenv
 import os
+import time
+from dotenv import load_dotenv
+import litellm
 
 load_dotenv()
 
@@ -19,136 +19,85 @@ def get_secret(key):
 PRIMARY_MODEL = "groq/openai/gpt-oss-120b"
 FALLBACK_MODEL = "groq/openai/gpt-oss-20b"
 
-_MAX_RPM = {
-    PRIMARY_MODEL: 15,
-    FALLBACK_MODEL: 8,
-}
-
-# Both models share ONE 8000 TPM pool at the org level on Groq's free tier --
-# this is not per-model. Capping max_tokens on every call keeps any single
-# completion from eating most of that shared budget and starving the next
-# stage in the same 60s window.
-_MAX_OUTPUT_TOKENS = 600
+# Both models share ONE 8000 TPM pool at the org level on Groq's free tier.
+# Capped hard so a single completion can never eat most of that budget.
+MAX_OUTPUT_TOKENS = 900
 
 
-def _rpm_for(model):
-    return _MAX_RPM.get(model, 8)
+def call_llm(prompt, model=None, system=None):
+    """
+    ONE flat completion call. No agent loop, no tool-calling, no growing
+    conversation history. This is the whole point of the rewrite:
+    CrewAI's ReAct-style agent loop resends the entire conversation-so-far
+    on every iteration, so token cost compounds within a single stage --
+    that's what was blowing the 8000 TPM budget even with throttling.
+    A single call has a flat, predictable token cost every time.
+    """
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
 
-
-def get_llm(model=None):
-    return LLM(
+    response = litellm.completion(
         model=model or PRIMARY_MODEL,
+        messages=messages,
         api_key=get_secret("GROQ_API_KEY"),
         temperature=0.3,
-        max_tokens=_MAX_OUTPUT_TOKENS
+        max_tokens=MAX_OUTPUT_TOKENS
     )
+    text = response.choices[0].message.content
+    usage = getattr(response, "usage", None)
+    if usage:
+        print(
+            "[llm] model=" + (model or PRIMARY_MODEL)
+            + " prompt_tokens=" + str(getattr(usage, "prompt_tokens", "?"))
+            + " completion_tokens=" + str(getattr(usage, "completion_tokens", "?"))
+            + " total_tokens=" + str(getattr(usage, "total_tokens", "?"))
+        )
+    return text
 
 
-import time as _time
+def call_llm_with_retry(prompt, system=None, max_retries=4):
+    """
+    Retries a single flat call across primary -> fallback model on
+    rate_limit/quota errors. Because each call is flat-cost (no compounding
+    loop), a real wait actually clears the window -- no throttling needed
+    between iterations because there ARE no iterations.
+    """
+    current_model = PRIMARY_MODEL
+    last_error = None
 
+    for attempt in range(1, max_retries + 2):
+        try:
+            return call_llm(prompt, model=current_model, system=system)
+        except Exception as e:
+            last_error = e
+            msg = str(e).lower()
 
-def _throttle_step(step):
-    # Fires between EVERY iteration inside a single agent's loop (each
-    # search + reasoning round is its own LLM call). Without this, an
-    # agent with max_iter=4 can fire 4 calls in a few seconds and blow
-    # the 8000 TPM budget entirely within one stage, before the
-    # between-stage cooldowns in crew.py ever get a chance to matter.
-    _time.sleep(12)
+            is_quota = any(s in msg for s in ("tokens per day", "requests per day", "tpd)", "rpd)"))
+            is_rate_limit = any(s in msg for s in ("rate_limit_exceeded", "429", "too many requests"))
 
+            if is_quota and current_model != FALLBACK_MODEL:
+                print("[llm] quota exhausted on " + current_model + " -- switching to " + FALLBACK_MODEL)
+                current_model = FALLBACK_MODEL
+                wait = 2
+            elif is_rate_limit:
+                import re
+                s_match = re.search(r"try again in\s+([\d.]+)s", msg)
+                ms_match = re.search(r"try again in\s+([\d.]+)ms", msg)
+                if s_match:
+                    wait = float(s_match.group(1)) + 3
+                elif ms_match:
+                    wait = max(float(ms_match.group(1)) / 1000.0 + 5, 8)
+                else:
+                    wait = min(20 * attempt, 65)
+            else:
+                wait = min(3 * attempt, 30)
 
-def get_researcher(model=None):
-    model = model or PRIMARY_MODEL
-    return Agent(
-        role="Startup Research Specialist",
-        goal=(
-            "Find comprehensive, up-to-date information about the given startup "
-            "by running multiple web searches, then output ONLY a single valid "
-            "JSON object containing every finding. No prose, no markdown, no "
-            "commentary before or after the JSON. Only include a fact if a search "
-            "result explicitly states it -- do not infer cloud infrastructure "
-            "partners, technology stacks, or API compatibility from indirect "
-            "context (e.g. an investor being mentioned does not mean they are "
-            "also a hosting or infrastructure partner)."
-        ),
-        backstory=(
-            "You are an expert startup analyst who has spent 10 years researching "
-            "tech companies for venture capital firms. You are meticulous about "
-            "separating facts from speculation, and you always return clean, "
-            "well-formed JSON, never prose. You never conflate an investor "
-            "relationship with an infrastructure or technology partnership -- "
-            "those are different things and you always keep them distinct."
-        ),
-        tools=[search_the_internet],
-        llm=get_llm(model),
-        verbose=True,
-        allow_delegation=False,
-        # Task now asks for 2 searches, not 4+ -- max_iter is searches + 1
-        # for the final JSON answer, with room to spare.
-        max_iter=4,
-        max_rpm=_rpm_for(model),
-        memory=False,
-        step_callback=_throttle_step
-    )
-
-
-def get_analyst(model=None):
-    model = model or PRIMARY_MODEL
-    return Agent(
-        role="Business Intelligence Analyst",
-        goal=(
-            "Read the JSON research data provided in your task context. Base every "
-            "insight strictly on that data, never invent figures or fall back on "
-            "general knowledge. Output ONLY a single valid JSON object: the "
-            "original fields from the research data, plus your new analysis "
-            "fields. No prose, no markdown, no commentary before or after the JSON. "
-            "Do not state or imply any cloud provider, infrastructure partnership, "
-            "or API compatibility claim unless it appears explicitly and literally "
-            "in the research data -- if it is not there, omit it rather than "
-            "inferring it from adjacent facts like investor names."
-        ),
-        backstory=(
-            "You are a senior business analyst who has evaluated hundreds of startups "
-            "for Series A/B investment decisions. You cut through noise and surface "
-            "the 2-3 things that actually determine whether a company succeeds. You "
-            "never write generic filler, every claim traces back to a fact you were "
-            "actually given. You are especially careful never to confuse an investor "
-            "relationship with a technical or infrastructure partnership."
-        ),
-        llm=get_llm(model),
-        verbose=True,
-        allow_delegation=False,
-        max_iter=2,
-        max_rpm=_rpm_for(model),
-        memory=False
-    )
-
-
-def get_writer(model=None):
-    model = model or PRIMARY_MODEL
-    return Agent(
-        role="Intelligence Report Writer",
-        goal=(
-            "Read the JSON data provided in your task context and transform it "
-            "into a clear, professional markdown intelligence report. Every "
-            "section must be grounded in the JSON data you were given, do not "
-            "invent figures or use outside knowledge. If a field in the JSON is "
-            "missing, empty, or 'Not publicly available', write 'Data unavailable' "
-            "for that section instead of guessing. Never add cloud provider names, "
-            "infrastructure partnerships, or API compatibility claims that are not "
-            "explicitly present in the JSON, even if they seem plausible based on "
-            "general knowledge of the industry."
-        ),
-        backstory=(
-            "You are a technical writer who specialises in investment memos and company "
-            "briefs. You write for busy founders and investors who need facts fast, and "
-            "you never pad a report with information you weren't actually given, "
-            "especially technical claims about infrastructure or API design that could "
-            "be factually wrong and embarrass the reader if repeated."
-        ),
-        llm=get_llm(model),
-        verbose=True,
-        allow_delegation=False,
-        max_iter=2,
-        max_rpm=_rpm_for(model),
-        memory=False
-    )
+            if attempt <= max_retries:
+                print("[llm] attempt " + str(attempt) + " failed (" + str(e)[:120] + ") -- retrying in " + str(round(wait)) + "s")
+                time.sleep(wait)
+            else:
+                raise RuntimeError(
+                    "LLM call failed after " + str(attempt) + " attempt(s). Last error: " + str(last_error)
+                ) from last_error
