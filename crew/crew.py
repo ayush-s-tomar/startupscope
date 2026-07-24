@@ -114,8 +114,8 @@ def _schema_from_analysis_json(analysis_raw, company_name):
         "founded": data.get("founded", ""),
         "hq": data.get("hq", ""),
         "team_size": data.get("team_size", ""),
-        "total_raised": data.get("funding", {}).get("total_raised", ""),
-        "last_round": data.get("funding", {}).get("last_round", ""),
+        "total_raised": _sanitize_money_field(data.get("funding", {}).get("total_raised", "")),
+        "last_round": _sanitize_money_field(data.get("funding", {}).get("last_round", "")),
     }
     schema["what_they_do"] = data.get("product_summary", "")
     schema["business_model"] = data.get("business_model", "")
@@ -178,6 +178,58 @@ def _parse_money(text):
     return values
 
 
+_MONEY_PATTERN = re.compile(
+    r"\$?\s*\d+(?:\.\d+)?\s*(?:billion|bn|b\b|million|mn|m\b)",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_money_field(value):
+    """
+    total_raised / last_round are supposed to be short clean values like
+    '$132B' or 'Series H - $65B'. Instead the model has been known to
+    return a full sentence fragment with the number buried inside it
+    (e.g. '132B and a recent Series H round'), which then bleeds straight
+    into the middle of a report sentence, rendering as a raw inline code
+    chip in the Strengths section. Rather than trust the model to keep
+    following the "keep it short" instruction, this pulls out just the
+    first dollar-amount-shaped substring (plus an optional leading round
+    label like 'Series H') and throws away any surrounding prose. If
+    nothing money-shaped is found at all, fall back to
+    'Not publicly available' rather than passing raw prose through.
+    """
+    if not value or not isinstance(value, str):
+        return value
+
+    value = value.strip()
+
+    money_match = _MONEY_PATTERN.search(value)
+    if not money_match:
+        print("[crew] total_raised/last_round field had no recognizable money value in: '" + value + "' -- overwriting to 'Not publicly available'")
+        return "Not publicly available"
+
+    prefix_window = value[max(0, money_match.start() - 20):money_match.start()]
+    round_match = re.search(r"(Series\s+[A-Z]|Seed|Pre-Seed)\s*[-:]?\s*$", prefix_window, re.IGNORECASE)
+
+    cleaned = money_match.group(0).strip()
+    if not cleaned.startswith("$"):
+        cleaned = "$" + cleaned
+    if round_match:
+        cleaned = round_match.group(1) + " - " + cleaned
+
+    # Explicitly compare against what a genuinely clean value would look
+    # like, rather than guessing "is this a sentence?" from filler words.
+    # If the original value is exactly the extracted clean form (modulo an
+    # optional leading '$'), leave it untouched; anything else means prose
+    # was surrounding the number and we use the extracted value instead.
+    reconstructed = re.escape(cleaned).replace(r"\$", r"\$?")
+    if re.fullmatch(reconstructed, value, re.IGNORECASE):
+        return value
+
+    print("[crew] sanitized money field: '" + value + "' -> '" + cleaned + "'")
+    return cleaned
+
+
 def _strip_unsupported_total_raised(research_raw, search_text):
     """
     Prompt instructions alone weren't reliably stopping the model from
@@ -186,25 +238,48 @@ def _strip_unsupported_total_raised(research_raw, search_text):
     and units) and checks whether a matching amount (within 2% tolerance,
     to allow minor rounding) appears anywhere in the raw search text. If
     not, it's overwritten instead of silently repeating an unsupported
-    figure.
+    figure. It also sanitizes total_raised/last_round to short clean
+    values, since the model has separately been known to bury the money
+    value inside a full sentence fragment rather than returning it alone.
     """
     try:
         data = _extract_json(research_raw)
     except (json.JSONDecodeError, ValueError):
         return research_raw
 
-    total_raised = data.get("funding", {}).get("total_raised", "")
+    funding = data.get("funding", {})
+    changed = False
+
+    total_raised = funding.get("total_raised", "")
     if total_raised and total_raised != "Not publicly available":
-        claimed = _parse_money(total_raised)
-        source_values = _parse_money(search_text)
-        supported = any(
-            c > 0 and any(abs(c - s) / c < 0.02 for s in source_values)
-            for c in claimed
-        )
-        if claimed and not supported:
-            print("[crew] total_raised '" + total_raised + "' has no matching figure in search text -- overwriting to 'Not publicly available'")
-            data["funding"]["total_raised"] = "Not publicly available"
-            return json.dumps(data)
+        sanitized = _sanitize_money_field(total_raised)
+        if sanitized != total_raised:
+            funding["total_raised"] = sanitized
+            total_raised = sanitized
+            changed = True
+
+        if total_raised != "Not publicly available":
+            claimed = _parse_money(total_raised)
+            source_values = _parse_money(search_text)
+            supported = any(
+                c > 0 and any(abs(c - s) / c < 0.02 for s in source_values)
+                for c in claimed
+            )
+            if claimed and not supported:
+                print("[crew] total_raised '" + total_raised + "' has no matching figure in search text -- overwriting to 'Not publicly available'")
+                funding["total_raised"] = "Not publicly available"
+                changed = True
+
+    last_round = funding.get("last_round", "")
+    if last_round and last_round != "Not publicly available":
+        sanitized = _sanitize_money_field(last_round)
+        if sanitized != last_round:
+            funding["last_round"] = sanitized
+            changed = True
+
+    if changed:
+        data["funding"] = funding
+        return json.dumps(data)
 
     return research_raw
 
