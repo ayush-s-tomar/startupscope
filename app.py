@@ -5,6 +5,74 @@ from theme import inject_theme
 import threading
 import queue
 import time
+import re
+
+
+def _pdf_safe(text: str) -> str:
+    """
+    fpdf2's built-in core fonts only support Latin-1. Report text commonly
+    contains characters outside that range (em dashes, curly quotes, bullets)
+    which would otherwise raise FPDFUnicodeEncodingException. Map the common
+    ones to ASCII equivalents, then drop anything else that still won't fit.
+    """
+    replacements = {
+        "\u2014": "-", "\u2013": "-",      # em dash, en dash
+        "\u2018": "'", "\u2019": "'",      # curly single quotes
+        "\u201c": '"', "\u201d": '"',      # curly double quotes
+        "\u2022": "-", "\u2026": "...",    # bullet, ellipsis
+    }
+    for src, dst in replacements.items():
+        text = text.replace(src, dst)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def markdown_to_pdf_bytes(md_text: str, title: str = "Report") -> bytes | None:
+    """
+    Renders a plain-text/PDF version of the markdown report. Lightweight,
+    pure-Python (fpdf2 has no system dependencies, so it works on Streamlit
+    Cloud without extra apt packages). Returns None if fpdf2 isn't available.
+    """
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        return None
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 10, _pdf_safe(title))
+    pdf.ln(2)
+
+    for raw_line in md_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            pdf.ln(3)
+            continue
+        pdf.set_x(pdf.l_margin)
+        if line.startswith("# "):
+            pdf.set_font("Helvetica", "B", 15)
+            pdf.multi_cell(0, 9, _pdf_safe(line.lstrip("# ").strip()))
+        elif line.startswith("## "):
+            pdf.set_font("Helvetica", "B", 12)
+            pdf.ln(2)
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(0, 8, _pdf_safe(line.lstrip("# ").strip()))
+        elif line.startswith(("- ", "* ")):
+            pdf.set_font("Helvetica", "", 10)
+            clean = re.sub(r"\*\*(.*?)\*\*", r"\1", line[2:].strip())
+            pdf.multi_cell(0, 6, _pdf_safe(f"  -  {clean}"))
+        elif line in ("---",):
+            pdf.ln(2)
+        else:
+            pdf.set_font("Helvetica", "", 10)
+            clean = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
+            clean = re.sub(r"\|", "  ", clean)
+            pdf.multi_cell(0, 6, _pdf_safe(clean))
+
+    return bytes(pdf.output())
 
 st.set_page_config(
     page_title="StartupScope",
@@ -22,6 +90,10 @@ inject_theme(st.session_state.theme_mode)
 # ── SESSION STATE ──
 if "viewing_history_id" not in st.session_state:
     st.session_state.viewing_history_id = None
+if "reports_this_session" not in st.session_state:
+    st.session_state.reports_this_session = 0
+if "prefill_company" not in st.session_state:
+    st.session_state.prefill_company = ""
 
 
 # ── LIVE PROGRESS RUNNER ────────────────────────────────────────────────────
@@ -115,6 +187,15 @@ def run_with_progress(company_name: str) -> str:
 
 # ── SIDEBAR: REPORT HISTORY ──────────────────────────────────────────────────
 with st.sidebar:
+    if st.session_state.reports_this_session > 0:
+        st.markdown(f"""
+        <div class="session-stat">
+            <div class="session-stat-number">{st.session_state.reports_this_session}</div>
+            <div class="session-stat-label">Reports this session</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
     st.markdown("### 📜 Report History")
     history = load_history()
 
@@ -231,27 +312,56 @@ st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
 # ── SINGLE MODE ───────────────────────────────────────────────────────────────
 if mode == "Single Company":
+    st.caption("Try an example")
+    example_cols = st.columns(5)
+    example_companies = ["OpenAI", "Anthropic", "Stripe", "Razorpay", "Notion"]
+    for col, ex_name in zip(example_cols, example_companies):
+        with col:
+            if st.button(ex_name, key=f"ex_{ex_name}", use_container_width=True):
+                st.session_state.prefill_company = ex_name
+                st.rerun()
+
     company_name = st.text_input(
         "Company",
+        value=st.session_state.prefill_company,
         placeholder="e.g. Zepto, Razorpay, Notion, OpenAI..."
     )
 
     if st.button("Generate Intelligence Report", disabled=not company_name):
         try:
+            start_time = time.time()
             # ── Live progress replaces the silent spinner ──────────────────
             result = run_with_progress(company_name)
+            elapsed_time = time.time() - start_time
 
             add_entry(company_name, result, mode="single")
-            st.success("✅ Report complete")
+            st.session_state.reports_this_session += 1
+            st.session_state.prefill_company = ""
+
+            st.success(f"✅ Report complete · generated in {elapsed_time:.0f}s")
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
             st.markdown(result)
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
-            st.download_button(
-                label="↓ Download Report (.md)",
-                data=result,
-                file_name=f"{company_name.lower().replace(' ', '_')}_report.md",
-                mime="text/markdown"
-            )
+
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                st.download_button(
+                    label="↓ Download Report (.md)",
+                    data=result,
+                    file_name=f"{company_name.lower().replace(' ', '_')}_report.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+            with dl_col2:
+                pdf_bytes = markdown_to_pdf_bytes(result, title=f"{company_name} — Intelligence Report")
+                if pdf_bytes:
+                    st.download_button(
+                        label="↓ Download Report (.pdf)",
+                        data=pdf_bytes,
+                        file_name=f"{company_name.lower().replace(' ', '_')}_report.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
         except Exception as e:
             st.error(f"Something went wrong: {str(e)}")
             st.info("Check your API keys and try again.")
@@ -306,6 +416,7 @@ else:
                 mode="compare",
                 extra_label=f"{company_a} vs {company_b}"
             )
+            st.session_state.reports_this_session += 1
 
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
 

@@ -224,6 +224,27 @@ SHARED_CSS = """
         color: var(--ink-faint);
         padding-top: 1.8rem;
     }
+    .session-stat {
+        background-color: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        padding: 1rem;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .session-stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--ink);
+        line-height: 1;
+    }
+    .session-stat-label {
+        font-size: 0.72rem;
+        color: var(--ink-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 0.3rem;
+    }
     .history-item {
         background-color: var(--panel);
         border: 1px solid var(--panel-border);
