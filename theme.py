@@ -30,16 +30,16 @@ BRIEF_CSS = """
 
 CONSOLE_CSS = """
 :root {
-    --bg:        #F5F4F0;
+    --bg:        #E9E7E0;
     --panel:     #FFFFFF;
-    --panel-alt: #EEEDE9;
-    --ink:       #111111;
-    --ink-dim:   #444444;
-    --ink-faint: #888888;
-    --accent:    #111111;
+    --panel-alt: #DEDBD2;
+    --ink:       #0A0A0A;
+    --ink-dim:   #333333;
+    --ink-faint: #5C5C5C;
+    --accent:    #0A0A0A;
     --on-accent: #FFFFFF;
-    --hairline:  #DEDBD4;
-    --panel-border: #D4D1CB;
+    --hairline:  #B8B3A8;
+    --panel-border: #A8A297;
 }
 """
 
