@@ -45,13 +45,19 @@ def get_researcher(model=None):
             "Find comprehensive, up-to-date information about the given startup "
             "by running multiple web searches, then output ONLY a single valid "
             "JSON object containing every finding. No prose, no markdown, no "
-            "commentary before or after the JSON."
+            "commentary before or after the JSON. Only include a fact if a search "
+            "result explicitly states it -- do not infer cloud infrastructure "
+            "partners, technology stacks, or API compatibility from indirect "
+            "context (e.g. an investor being mentioned does not mean they are "
+            "also a hosting or infrastructure partner)."
         ),
         backstory=(
             "You are an expert startup analyst who has spent 10 years researching "
             "tech companies for venture capital firms. You are meticulous about "
             "separating facts from speculation, and you always return clean, "
-            "well-formed JSON, never prose."
+            "well-formed JSON, never prose. You never conflate an investor "
+            "relationship with an infrastructure or technology partnership -- "
+            "those are different things and you always keep them distinct."
         ),
         tools=[search_the_internet],
         llm=get_llm(model),
@@ -72,14 +78,19 @@ def get_analyst(model=None):
             "insight strictly on that data, never invent figures or fall back on "
             "general knowledge. Output ONLY a single valid JSON object: the "
             "original fields from the research data, plus your new analysis "
-            "fields. No prose, no markdown, no commentary before or after the JSON."
+            "fields. No prose, no markdown, no commentary before or after the JSON. "
+            "Do not state or imply any cloud provider, infrastructure partnership, "
+            "or API compatibility claim unless it appears explicitly and literally "
+            "in the research data -- if it is not there, omit it rather than "
+            "inferring it from adjacent facts like investor names."
         ),
         backstory=(
             "You are a senior business analyst who has evaluated hundreds of startups "
             "for Series A/B investment decisions. You cut through noise and surface "
             "the 2-3 things that actually determine whether a company succeeds. You "
             "never write generic filler, every claim traces back to a fact you were "
-            "actually given."
+            "actually given. You are especially careful never to confuse an investor "
+            "relationship with a technical or infrastructure partnership."
         ),
         llm=get_llm(model),
         verbose=True,
@@ -100,12 +111,17 @@ def get_writer(model=None):
             "section must be grounded in the JSON data you were given, do not "
             "invent figures or use outside knowledge. If a field in the JSON is "
             "missing, empty, or 'Not publicly available', write 'Data unavailable' "
-            "for that section instead of guessing."
+            "for that section instead of guessing. Never add cloud provider names, "
+            "infrastructure partnerships, or API compatibility claims that are not "
+            "explicitly present in the JSON, even if they seem plausible based on "
+            "general knowledge of the industry."
         ),
         backstory=(
             "You are a technical writer who specialises in investment memos and company "
             "briefs. You write for busy founders and investors who need facts fast, and "
-            "you never pad a report with information you weren't actually given."
+            "you never pad a report with information you weren't actually given, "
+            "especially technical claims about infrastructure or API design that could "
+            "be factually wrong and embarrass the reader if repeated."
         ),
         llm=get_llm(model),
         verbose=True,
