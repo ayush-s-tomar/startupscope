@@ -11,12 +11,23 @@ import re
 def _pdf_safe(text: str) -> str:
     """
     fpdf2's built-in core fonts only support Latin-1. Report text commonly
-    contains characters outside that range (em dashes, curly quotes, bullets)
-    which would otherwise raise FPDFUnicodeEncodingException. Map the common
-    ones to ASCII equivalents, then drop anything else that still won't fit.
+    contains characters outside that range which would otherwise raise
+    FPDFUnicodeEncodingException. Map the common ones to ASCII equivalents,
+    then drop anything else that still won't fit.
+
+    The dash/hyphen family needed broadening: the writer model has been
+    observed using U+2011 (non-breaking hyphen) in compound words like
+    "full\u2011stack" and "developer\u2011friendly", not just the em/en
+    dash this originally covered. Anything in that family that wasn't
+    mapped here falls through to Latin-1's errors="replace", which turns
+    it into a literal "?" -- exactly what showed up in "full?stack" in a
+    generated PDF. Covering the whole Unicode dash/hyphen block avoids
+    whack-a-mole every time the model happens to pick a different one.
     """
     replacements = {
         "\u2014": "-", "\u2013": "-",      # em dash, en dash
+        "\u2010": "-", "\u2011": "-",      # hyphen, non-breaking hyphen
+        "\u2012": "-", "\u2015": "-",      # figure dash, horizontal bar
         "\u2018": "'", "\u2019": "'",      # curly single quotes
         "\u201c": '"', "\u201d": '"',      # curly double quotes
         "\u2022": "-", "\u2026": "...",    # bullet, ellipsis

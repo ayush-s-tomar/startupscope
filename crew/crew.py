@@ -170,16 +170,7 @@ def _parse_money(text):
     '$13.2 billion' and '$132 billion' as the same because it dropped the
     decimal point -- this is exactly the kind of false match that let a
     wrong figure through the guard undetected.
-
-    Coerces input to str first: the model has been known to return
-    funding.total_raised/last_round as a raw JSON number (e.g. 3000000000)
-    instead of a string like "$3B". re.finditer requires a str/bytes-like
-    object and raises "expected string or bytes-like object, got 'int'"
-    on a bare int/float -- this crashed the whole report generation the
-    moment that happened, so every caller is protected here in one place
-    rather than needing every call site to remember to cast first.
     """
-    text = str(text) if text is not None else ""
     values = []
     for match in re.finditer(r"\$?\s*(\d+(?:\.\d+)?)\s*(billion|bn|b\b|million|mn|m\b)?", text, re.IGNORECASE):
         num_str, unit = match.group(1), (match.group(2) or "").lower()
@@ -217,16 +208,8 @@ def _sanitize_money_field(value):
     nothing money-shaped is found at all, fall back to
     'Not publicly available' rather than passing raw prose through.
     """
-    if value is None or value == "":
+    if not value or not isinstance(value, str):
         return value
-    if not isinstance(value, str):
-        # Model returned a raw JSON number instead of a string like "$3B".
-        # Convert it to a plain string so the same money-shape check below
-        # can run on it -- a bare number with no unit word (e.g. "3000000000")
-        # won't match _MONEY_PATTERN, so this correctly falls through to the
-        # "Not publicly available" branch below rather than crashing or
-        # silently leaving a raw int sitting in the schema/report.
-        value = str(value)
 
     value = value.strip()
 
