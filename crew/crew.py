@@ -170,7 +170,16 @@ def _parse_money(text):
     '$13.2 billion' and '$132 billion' as the same because it dropped the
     decimal point -- this is exactly the kind of false match that let a
     wrong figure through the guard undetected.
+
+    Coerces input to str first: the model has been known to return
+    funding.total_raised/last_round as a raw JSON number (e.g. 3000000000)
+    instead of a string like "$3B". re.finditer requires a str/bytes-like
+    object and raises "expected string or bytes-like object, got 'int'"
+    on a bare int/float -- this crashed the whole report generation the
+    moment that happened, so every caller is protected here in one place
+    rather than needing every call site to remember to cast first.
     """
+    text = str(text) if text is not None else ""
     values = []
     for match in re.finditer(r"\$?\s*(\d+(?:\.\d+)?)\s*(billion|bn|b\b|million|mn|m\b)?", text, re.IGNORECASE):
         num_str, unit = match.group(1), (match.group(2) or "").lower()
@@ -208,8 +217,16 @@ def _sanitize_money_field(value):
     nothing money-shaped is found at all, fall back to
     'Not publicly available' rather than passing raw prose through.
     """
-    if not value or not isinstance(value, str):
+    if value is None or value == "":
         return value
+    if not isinstance(value, str):
+        # Model returned a raw JSON number instead of a string like "$3B".
+        # Convert it to a plain string so the same money-shape check below
+        # can run on it -- a bare number with no unit word (e.g. "3000000000")
+        # won't match _MONEY_PATTERN, so this correctly falls through to the
+        # "Not publicly available" branch below rather than crashing or
+        # silently leaving a raw int sitting in the schema/report.
+        value = str(value)
 
     value = value.strip()
 
@@ -384,6 +401,64 @@ def _enrich_competitor_funding(analysis_raw, max_competitors=3):
         return json.dumps(data)
 
     return analysis_raw
+
+
+_KNOWN_SECTION_HEADINGS = [
+    "Overview", "Quick Facts", "What They Do", "Business Model",
+    "Strengths", "Risks", "Competitive Landscape", "Recent News", "Verdict",
+]
+
+_SQUISHED_HEADING_PATTERN = re.compile(
+    r"(##\s*(?:" + "|".join(re.escape(h) for h in _KNOWN_SECTION_HEADINGS) + r"))"
+    r"([A-Za-z])",  # immediately followed by a letter -- no space, no newline
+)
+
+
+def _fix_squished_headings(md_report):
+    """
+    The writer model has been observed occasionally emitting a section
+    heading and its content as one unbroken line with zero separator --
+    e.g. "## Recent NewsData unavailable" instead of "## Recent News\n\n
+    Data unavailable". Markdown renders this as the heading and the first
+    word of the content jammed together ("Recent NewsData unavailable"),
+    which is confusing and looks broken in both the Streamlit view and the
+    PDF export. This is a prompt-following slip, not something a stricter
+    instruction reliably prevents, so this inserts the missing line break
+    mechanically whenever one of the known section headings is directly
+    followed by a letter with no space or newline in between.
+    """
+    def _insert_break(m):
+        print("[crew] fixed squished heading: '" + m.group(0)[:40] + "...'")
+        return m.group(1) + "\n\n" + m.group(2)
+
+    return _SQUISHED_HEADING_PATTERN.sub(_insert_break, md_report)
+
+
+_MISSING_HEADING_MARKER_PATTERN = re.compile(
+    r"([.!?])\s*(" + "|".join(re.escape(h) for h in _KNOWN_SECTION_HEADINGS) + r")\n"
+)
+
+
+def _fix_missing_heading_markers(md_report):
+    """
+    A second, distinct variant of the same underlying model slip: instead
+    of writing a proper "## Recent News" heading on its own line, the
+    writer has been observed dropping the "##" marker (and the blank line)
+    entirely, gluing the heading text directly onto the end of the
+    previous section's last sentence -- e.g. "...Stripe's payment
+    processing.Recent News" followed immediately by that section's bullet
+    list. _fix_squished_headings only catches heading markers that exist
+    but are stuck to their OWN content; this catches the marker missing
+    outright. Matches sentence-ending punctuation immediately followed by
+    one of the known heading names and then a newline (the bullet list or
+    next line always follows immediately in this failure mode), and
+    rewrites it as a proper heading with correct spacing.
+    """
+    def _insert_heading(m):
+        print("[crew] restored missing heading marker: '" + m.group(2) + "'")
+        return m.group(1) + "\n\n## " + m.group(2) + "\n\n"
+
+    return _MISSING_HEADING_MARKER_PATTERN.sub(_insert_heading, md_report)
 
 
 def _format_num(n):
@@ -620,6 +695,8 @@ def run_crew(company_name, max_retries=4):
     md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=2000)
     md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
+    md_report = _fix_squished_headings(md_report)
+    md_report = _fix_missing_heading_markers(md_report)
     md_report = md_report.replace("`", "")
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
