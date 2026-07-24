@@ -284,6 +284,73 @@ def _strip_unsupported_total_raised(research_raw, search_text):
     return research_raw
 
 
+def _enrich_competitor_funding(analysis_raw, max_competitors=3):
+    """
+    Competitor funding was always coming back 'Not publicly available' --
+    not because the model was refusing to guess, but because the search
+    stage (_run_searches) only ever queries for the TARGET company's
+    funding. There was never any competitor funding data anywhere in the
+    pipeline for the model to draw from, so 'Not publicly available' was
+    the only honest answer it could give.
+
+    This patches that gap directly: once the analysis stage has identified
+    who the competitors are, run one small targeted search per competitor
+    and mechanically extract a funding figure from the results, the same
+    way _parse_money/_sanitize_money_field handle the main company's
+    numbers. This does not touch the model at all -- it's a second,
+    narrow, plain-Python search-and-patch step.
+    """
+    try:
+        data = _extract_json(analysis_raw)
+    except (json.JSONDecodeError, ValueError):
+        return analysis_raw
+
+    competitors = data.get("competitors", [])
+    if not competitors:
+        return analysis_raw
+
+    changed = False
+    for comp in competitors[:max_competitors]:
+        name = comp.get("name", "").strip()
+        if not name:
+            continue
+        existing = comp.get("funding", "")
+        if existing and existing != "Not publicly available":
+            continue  # model already had something -- don't overwrite
+
+        query = name + " total funding raised"
+        result_text = _call_search_tool(query)
+        time.sleep(1)
+
+        values = _parse_money(result_text)
+        if values:
+            # Take the largest figure mentioned -- for funding-total
+            # queries this is reliably the cumulative total rather than a
+            # single round, since rounds are smaller than the running sum.
+            best = max(values)
+            if best >= 1_000_000:  # sanity floor, ignore stray small numbers
+                if best >= 1_000_000_000:
+                    display = "$" + _format_num(best / 1_000_000_000) + "B"
+                else:
+                    display = "$" + _format_num(best / 1_000_000) + "M"
+                print("[crew] enriched competitor funding: '" + name + "' -> '" + display + "'")
+                comp["funding"] = display
+                changed = True
+
+    if changed:
+        data["competitors"] = competitors
+        return json.dumps(data)
+
+    return analysis_raw
+
+
+def _format_num(n):
+    """Formats a float as a clean string, dropping a trailing '.0'."""
+    if n == int(n):
+        return str(int(n))
+    return str(round(n, 1))
+
+
 _BANNED_INFRA_PHRASES = [
     "multi-cloud", "multi cloud", "built on aws", "built on azure",
     "built on gcp", "aws infrastructure", "azure infrastructure",
@@ -338,6 +405,9 @@ def run_crew(company_name, max_retries=4):
     print("[crew] Stage 2/3: analysis (1 flat LLM call)...")
     analysis_prompt = build_analysis_prompt(company_name, research_raw)
     analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries, max_tokens=1500)
+
+    print("[crew] Enriching competitor funding (plain Python, targeted searches)...")
+    analysis_raw = _enrich_competitor_funding(analysis_raw)
 
     time.sleep(15)
 
