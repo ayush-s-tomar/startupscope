@@ -1,21 +1,17 @@
 from crewai import Task
-from crew.agents import agent_context
-
-
-# ── Helper ─────────────────────────────────────────────────────────────────
-
-def _context_snapshot() -> str:
-    """Return a human-readable summary of what agent_context currently holds."""
-    import json
-    return json.dumps(agent_context, indent=2, ensure_ascii=False)
 
 
 # ── Task factories ──────────────────────────────────────────────────────────
+#
+# Each task's real output is data, not a side-effect. CrewAI passes a task's
+# output text to any later task listed in that task's `.context` — that's the
+# only reliable channel for handing data between agents.
 
 def get_research_task(agent, company_name: str):
     """
-    Parallel task 1 — runs at the same time as the analysis task.
-    The researcher populates agent_context with raw, typed findings.
+    Task 1 — the Researcher runs searches and returns a single JSON object.
+    This JSON becomes the task's output, which crew.py wires into the
+    Analysis task's context.
     """
     return Task(
         description=f"""
@@ -27,142 +23,152 @@ Run at least 4 different web searches using varied query angles, for example:
   - "{company_name} competitors market"
   - "{company_name} news 2024 2025"
 
-For every finding, write the value into the shared agent_context dict:
+After researching, output ONLY a single valid JSON object with exactly this shape
+(no prose before or after it, no markdown code fences):
 
-  agent_context["product_summary"]        — one sentence: what the company does
-  agent_context["founded"]                — year founded (string)
-  agent_context["hq"]                     — city, country
-  agent_context["team_size"]              — approximate headcount
-  agent_context["funding"]["total_raised"]— e.g. "$120M"
-  agent_context["funding"]["last_round"]  — e.g. "Series B, Jan 2024"
-  agent_context["funding"]["investors"]   — list of investor name strings
-  agent_context["competitors"]            — list of dicts:
-                                            [{{"name": "...", "model": "...", "funding": "..."}}]
-                                            (minimum 3 competitors)
-  agent_context["recent_news"]            — list of dicts:
-                                            [{{"headline": "...", "date": "...", "source": "..."}}]
-                                            (minimum 3 news items from last 6 months)
-  agent_context["tech_stack"]             — list of technology/product feature strings
-  agent_context["growth_metrics"]         — any public revenue or growth figure
+{{
+  "company_name": "{company_name}",
+  "product_summary": "one sentence: what the company does",
+  "founded": "year founded, or 'Not publicly available'",
+  "hq": "city, country, or 'Not publicly available'",
+  "team_size": "approximate headcount, or 'Not publicly available'",
+  "funding": {{
+    "total_raised": "e.g. '$120M', or 'Not publicly available'",
+    "last_round": "e.g. 'Series B, Jan 2024', or 'Not publicly available'",
+    "investors": ["list", "of", "investor names"]
+  }},
+  "competitors": [
+    {{"name": "...", "model": "...", "funding": "..."}}
+  ],
+  "recent_news": [
+    {{"headline": "...", "date": "...", "source": "..."}}
+  ],
+  "tech_stack": ["list", "of", "technology or product feature strings"],
+  "growth_metrics": "any public revenue or growth figure, or 'Not publicly available'"
+}}
 
-If a field cannot be found after two searches, set it to "Not publicly available".
-Do NOT leave any field empty — always write a value.
+Rules:
+- competitors must have at least 3 entries when the data is available.
+- recent_news must have at least 3 entries from the last 6 months when available.
+- If a field truly cannot be found after searching, use "Not publicly available"
+  (or an empty list for list fields) — never leave a field out of the JSON.
+- Output must be valid JSON and nothing else.
         """,
         agent=agent,
         expected_output=(
-            "A confirmation that agent_context has been fully populated, followed by "
-            "a JSON dump of agent_context showing all fields filled in. "
-            "Competitors list must have at least 3 entries. "
-            "recent_news list must have at least 3 entries."
+            "A single valid JSON object with the exact keys described above, "
+            "populated from real search results. No prose, no markdown fences, "
+            "no commentary — JSON only."
         )
     )
 
 
 def get_analysis_task(agent, company_name: str):
     """
-    Parallel task 2 — runs at the same time as the research task.
-    The analyst reads agent_context (populated by researcher) and writes
-    its own insights back into the same shared dict.
+    Task 2 — the Analyst receives the Researcher's JSON (via context) and
+    returns an enriched JSON object with analysis fields added.
     """
     return Task(
         description=f"""
-Analyse the structured research data for **{company_name}** from agent_context.
+You will find the research data for **{company_name}** in your task context —
+it is a JSON object produced by the previous task. Parse it.
 
-Current context snapshot:
-{_context_snapshot()}
-
-Your job is to read the above and write the following fields back into agent_context:
-
-  agent_context["strengths"]              — list of 2-3 concise strength strings
-  agent_context["risks"]                  — list of 2-3 concise risk strings
-  agent_context["market_opportunity"]     — 1-2 sentence market sizing / TAM summary
-  agent_context["competitive_position"]   — 1-2 sentence summary of how the company
-                                            stands vs. its competitors
-  agent_context["verdict"]                — MUST be exactly one of:
-                                            "Promising" | "Neutral" | "Risky"
+Using only that data, produce a NEW JSON object that contains:
+  - every field from the original research JSON, unchanged
+  - plus these additional fields:
+    "strengths":            list of 2-3 concise, specific strength strings
+    "risks":                list of 2-3 concise, specific risk strings
+    "market_opportunity":   1-2 sentence market sizing / TAM summary
+    "competitive_position": 1-2 sentence summary of how the company stands
+                             vs. its competitors (use the competitors list
+                             from the research data)
+    "business_model":       2-3 sentences on how the company makes money,
+                             inferred from the research data
+    "verdict":               exactly one of "Promising", "Neutral", "Risky"
+    "verdict_rationale":     2-3 sentence explanation of the verdict
 
 Rules:
-- Base every insight on data already in agent_context. Do not invent figures.
-- Strengths and risks must be specific (e.g. "Strong Series B backing from Tiger Global"
-  not "Has good investors").
-- Verdict should reflect the balance of strengths vs. risks vs. market timing.
+- Base every insight strictly on the research data you were given. Do not
+  invent figures or rely on outside/general knowledge.
+- Strengths and risks must be specific (e.g. "Backed by a $110B round led by
+  Amazon, Nvidia, and SoftBank" not "Has good investors").
+- If the research data for a field is "Not publicly available" or empty,
+  factor that into your analysis honestly rather than inventing a number.
+- Output ONLY the JSON object — no prose, no markdown fences, no commentary.
         """,
         agent=agent,
         expected_output=(
-            "A confirmation that agent_context has been updated with strengths, risks, "
-            "market_opportunity, competitive_position, and verdict. "
-            "Followed by a JSON dump of only those five fields showing the new values. "
-            "Verdict must be exactly 'Promising', 'Neutral', or 'Risky'."
+            "A single valid JSON object containing all original research fields "
+            "plus strengths, risks, market_opportunity, competitive_position, "
+            "business_model, verdict, and verdict_rationale. JSON only."
         )
     )
 
 
 def get_writing_task(agent, company_name: str):
     """
-    Sequential task — runs AFTER both parallel tasks complete.
-    The writer reads the fully-populated agent_context and renders the report.
+    Task 3 — the Writer receives the Analyst's fully-enriched JSON (via
+    context) and renders the final markdown report.
     """
     return Task(
         description=f"""
-Write the final intelligence report for **{company_name}** using the data in agent_context.
+You will find the fully-enriched JSON data for **{company_name}** in your task
+context — it is the output of the previous (analysis) task. Parse it.
 
-Current context (fully populated):
-{_context_snapshot()}
-
-Render the report in this exact markdown format:
+Render the report in this exact markdown format, replacing every placeholder
+with a real value taken from the JSON:
 
 ---
 # {company_name} — Intelligence Report
 
 ## Overview
-(1-2 sentences from agent_context["product_summary"] and agent_context["market_opportunity"])
+(1-2 sentences from product_summary and market_opportunity)
 
 ## Quick Facts
 | Field        | Value |
 |--------------|-------|
-| Founded      | {{agent_context["founded"]}} |
-| HQ           | {{agent_context["hq"]}} |
-| Team size    | {{agent_context["team_size"]}} |
-| Total raised | {{agent_context["funding"]["total_raised"]}} |
-| Last round   | {{agent_context["funding"]["last_round"]}} |
+| Founded      | founded |
+| HQ           | hq |
+| Team size    | team_size |
+| Total raised | funding.total_raised |
+| Last round   | funding.last_round |
 
 ## What They Do
-(Expand on agent_context["product_summary"] with tech_stack details)
+(Expand on product_summary using tech_stack details)
 
 ## Business Model
-(Infer how they monetise from the research data)
+(business_model)
 
 ## Strengths
-(Bullet list from agent_context["strengths"])
+(Bullet list from strengths)
 
 ## Risks
-(Bullet list from agent_context["risks"])
+(Bullet list from risks)
 
 ## Competitive Landscape
-(Table or bullet list from agent_context["competitors"] + agent_context["competitive_position"])
+(Table or bullet list from competitors, plus competitive_position)
 
 ## Recent News
-(Bullet list from agent_context["recent_news"] — include date and source)
+(Bullet list from recent_news — include date and source for each)
 
 ## Verdict
-**{{agent_context["verdict"]}}**
-(2-3 sentence rationale)
+**verdict**
+(verdict_rationale)
 
 ---
 *Report generated by StartupScope*
 ---
 
 Rules:
-- Replace all {{...}} placeholders with real values from agent_context.
-- If any agent_context field is empty or "Not publicly available", write exactly
-  that in the report — never invent data.
-- Keep the table in Quick Facts — do not replace it with prose.
+- Use the ACTUAL values from the JSON you were given — never invent data.
+- If a JSON field is missing, empty, "Not publicly available", or an empty
+  list, write "Data unavailable" for that part of the report.
+- Keep the Quick Facts table as a markdown table — do not replace it with prose.
         """,
         agent=agent,
         expected_output=(
             "A complete, formatted markdown intelligence report with all 9 sections "
-            "populated from agent_context. No placeholder text like '{{company_name}}' "
-            "should remain. The Quick Facts section must be a markdown table. "
-            "Verdict must match agent_context['verdict'] exactly."
+            "populated from the JSON data you were given. No unresolved placeholders. "
+            "The Quick Facts section must be a markdown table."
         )
     )

@@ -18,65 +18,6 @@ def get_secret(key: str) -> str:
     return os.getenv(key, "")
 
 
-# ── Shared structured context dict ─────────────────────────────────────────
-agent_context: dict = {
-    "company_name":         "",
-    "product_summary":      "",
-    "founded":              "",
-    "hq":                   "",
-    "team_size":            "",
-    "funding": {
-        "total_raised":     "",
-        "last_round":       "",
-        "investors":        []
-    },
-    "competitors":          [],
-    "recent_news":          [],
-    "tech_stack":           [],
-    "growth_metrics":       "",
-    "strengths":            [],
-    "risks":                [],
-    "market_opportunity":   "",
-    "competitive_position": "",
-    "verdict":              "",
-    "what_they_do":         "",
-    "business_model":       "",
-    "verdict_rationale":    ""
-}
-
-
-def reset_context(company_name: str) -> None:
-    """
-    Call once before each crew run to wipe stale data.
-    Also resets the Bundle 4 schema fields so the JSON export is always fresh.
-    """
-    global agent_context
-    agent_context = {
-        "company_name":         company_name,
-        "product_summary":      "",
-        "founded":              "",
-        "hq":                   "",
-        "team_size":            "",
-        "funding": {
-            "total_raised":     "",
-            "last_round":       "",
-            "investors":        []
-        },
-        "competitors":          [],
-        "recent_news":          [],
-        "tech_stack":           [],
-        "growth_metrics":       "",
-        "strengths":            [],
-        "risks":                [],
-        "market_opportunity":   "",
-        "competitive_position": "",
-        "verdict":              "",
-        "what_they_do":         "",
-        "business_model":       "",
-        "verdict_rationale":    ""
-    }
-
-
 # ── LLM factory ────────────────────────────────────────────────────────────
 
 def get_llm():
@@ -88,75 +29,93 @@ def get_llm():
 
 
 # ── Agent factories ────────────────────────────────────────────────────────
+#
+# NOTE: There is no shared "agent_context" dict anymore. LLM agents can only
+# return text — they cannot mutate Python objects in this process just
+# because a prompt tells them to. Instead, each agent's real output IS the
+# data: the Researcher returns a JSON object, the Analyst reads that JSON
+# (passed to it automatically by CrewAI via Task.context) and returns an
+# enriched JSON object, and the Writer reads that JSON and renders markdown.
 
 def get_researcher():
+    """
+    Searches the web and returns a single structured JSON object containing
+    every researched fact. This JSON *is* the task's output — CrewAI will
+    hand it to the next task automatically via task.context.
+    """
     return Agent(
         role="Startup Research Specialist",
         goal=(
-            "Find comprehensive, up-to-date information about the given startup. "
-            "Gather data on their product, funding history, team, competitors, and "
-            "recent news. Store every finding in the shared agent_context dict under "
-            "the correct key (funding, competitors, recent_news, tech_stack, etc.) "
-            "so downstream agents receive structured data, not raw prose. "
-            "Also populate agent_context['what_they_do'] with a 2-3 sentence "
-            "description of the product/service."
+            "Find comprehensive, up-to-date information about the given startup "
+            "by running multiple web searches, then output ONLY a single valid "
+            "JSON object containing every finding. No prose, no markdown, no "
+            "commentary before or after the JSON."
         ),
         backstory=(
             "You are an expert startup analyst who has spent 10 years researching "
             "tech companies for venture capital firms. You are meticulous about "
-            "separating facts from speculation and always cite your sources."
+            "separating facts from speculation, and you always return clean, "
+            "well-formed JSON — never prose."
         ),
         tools=[search_the_internet],
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
-        max_iter=4,
+        max_iter=6,
         memory=True
     )
 
 
 def get_analyst():
+    """
+    Receives the Researcher's JSON output (via Task.context) and returns an
+    enriched JSON object: the original fields plus strengths, risks,
+    market_opportunity, competitive_position, verdict, business_model, and
+    verdict_rationale.
+    """
     return Agent(
         role="Business Intelligence Analyst",
         goal=(
-            "Using the structured research in agent_context, extract the most "
-            "important business insights. Populate: "
-            "agent_context['strengths'] — list of 2-3 strength strings; "
-            "agent_context['risks'] — list of 2-3 risk strings; "
-            "agent_context['market_opportunity'] — 1-2 sentence TAM summary; "
-            "agent_context['competitive_position'] — 1-2 sentence positioning; "
-            "agent_context['verdict'] — exactly one of: 'Promising', 'Neutral', 'Risky'; "
-            "agent_context['business_model'] — how the company makes money (2-3 sentences); "
-            "agent_context['verdict_rationale'] — 2-3 sentence explanation of the verdict."
+            "Read the JSON research data provided in your task context. Base every "
+            "insight strictly on that data — never invent figures or fall back on "
+            "general knowledge. Output ONLY a single valid JSON object: the "
+            "original fields from the research data, plus your new analysis "
+            "fields. No prose, no markdown, no commentary before or after the JSON."
         ),
         backstory=(
             "You are a senior business analyst who has evaluated hundreds of startups "
             "for Series A/B investment decisions. You cut through noise and surface "
-            "the 2-3 things that actually determine whether a company succeeds."
+            "the 2-3 things that actually determine whether a company succeeds. You "
+            "never write generic filler — every claim traces back to a fact you were "
+            "actually given."
         ),
         llm=get_llm(),
         verbose=True,
         allow_delegation=False,
-        max_iter=2,
+        max_iter=3,
         memory=True
     )
 
 
 def get_writer():
+    """
+    Receives the Analyst's fully-enriched JSON object (via Task.context) and
+    renders it into the final markdown intelligence report.
+    """
     return Agent(
         role="Intelligence Report Writer",
         goal=(
-            "Read the fully-populated agent_context dict and transform it into a "
-            "clear, professional markdown intelligence report. Every section must be "
-            "grounded in data from agent_context — do not invent figures. "
-            "If a field in agent_context is empty, write 'Data unavailable' for that section. "
-            "The report MUST follow this exact heading structure so the JSON exporter works: "
-            "## Overview / ## Quick Facts / ## What They Do / ## Business Model / "
-            "## Strengths / ## Risks / ## Competitive Landscape / ## Recent News / ## Verdict"
+            "Read the JSON data provided in your task context and transform it "
+            "into a clear, professional markdown intelligence report. Every "
+            "section must be grounded in the JSON data you were given — do not "
+            "invent figures or use outside knowledge. If a field in the JSON is "
+            "missing, empty, or 'Not publicly available', write 'Data unavailable' "
+            "for that section instead of guessing."
         ),
         backstory=(
             "You are a technical writer who specialises in investment memos and company "
-            "briefs. You write for busy founders and investors who need facts fast."
+            "briefs. You write for busy founders and investors who need facts fast, and "
+            "you never pad a report with information you weren't actually given."
         ),
         llm=get_llm(),
         verbose=True,

@@ -39,11 +39,62 @@ def _empty_schema(company_name: str) -> dict:
     }
 
 
+def _extract_json(text: str) -> dict:
+    """
+    Pulls a JSON object out of an LLM response, tolerating stray prose or
+    markdown code fences around it.
+    """
+    text = text.strip()
+    # Strip ```json ... ``` or ``` ... ``` fences if present
+    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    # If there's stray text around the object, grab the outermost {...}
+    start = text.find("{")
+    end   = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+
+    return json.loads(text)
+
+
+def _schema_from_analysis_json(analysis_raw: str, company_name: str) -> dict:
+    """
+    Builds the typed export schema directly from the Analyst's JSON output —
+    the real structured data — instead of reverse-parsing the writer's
+    markdown. Falls back to an empty schema if parsing fails for any reason.
+    """
+    schema = _empty_schema(company_name)
+    try:
+        data = _extract_json(analysis_raw)
+    except (json.JSONDecodeError, ValueError):
+        return schema
+
+    schema["overview"]          = data.get("product_summary", "")
+    schema["quick_facts"] = {
+        "founded":      data.get("founded", ""),
+        "hq":           data.get("hq", ""),
+        "team_size":    data.get("team_size", ""),
+        "total_raised": data.get("funding", {}).get("total_raised", ""),
+        "last_round":   data.get("funding", {}).get("last_round", ""),
+    }
+    schema["what_they_do"]      = data.get("product_summary", "")
+    schema["business_model"]    = data.get("business_model", "")
+    schema["strengths"]         = data.get("strengths", [])
+    schema["risks"]             = data.get("risks", [])
+    schema["competitors"]       = data.get("competitors", [])
+    schema["recent_news"]       = data.get("recent_news", [])
+    schema["verdict"]           = data.get("verdict", "")
+    schema["verdict_rationale"] = data.get("verdict_rationale", "")
+    return schema
+
+
 def _parse_markdown_to_schema(md: str, company_name: str) -> dict:
     """
-    Best-effort extraction of structured data from the writer's markdown report.
-    Fills the typed schema so downstream code (JSON export, future API) can
-    consume individual fields without re-parsing the full markdown.
+    Fallback only: best-effort extraction of structured data straight from
+    the writer's markdown report, used if the Analyst's JSON output could
+    not be parsed for any reason.
     """
     schema = _empty_schema(company_name)
 
@@ -213,10 +264,15 @@ def run_crew(company_name: str, max_retries: int = 2) -> tuple:
             result    = crew.kickoff()
             md_report = str(result)
 
-            # ── Feature G: parse markdown → typed JSON schema ─────────────────
-            schema = _parse_markdown_to_schema(md_report, company_name)
+            # ── Build the typed schema from the Analyst's real JSON output ────
+            # (falls back to regex-parsing the markdown only if that JSON
+            # couldn't be parsed for some reason)
+            analysis_raw = getattr(analysis_task.output, "raw", "") or ""
+            schema = _schema_from_analysis_json(analysis_raw, company_name)
+            if not any([schema["strengths"], schema["risks"], schema["verdict"]]):
+                schema = _parse_markdown_to_schema(md_report, company_name)
 
-            # ── Feature H: save .md + .json to outputs/ ───────────────────────
+            # ── Save .md + .json to outputs/ ───────────────────────
             saved_paths = _save_outputs(company_name, md_report, schema)
 
             print(f"[crew] Saved: {saved_paths['md']}")
