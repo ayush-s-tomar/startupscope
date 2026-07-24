@@ -86,7 +86,7 @@ def get_researcher(model=None):
         # for the final JSON answer, with room to spare.
         max_iter=4,
         max_rpm=_rpm_for(model),
-        memory=True,
+        memory=False,
         step_callback=_throttle_step
     )
 
@@ -119,7 +119,7 @@ def get_analyst(model=None):
         allow_delegation=False,
         max_iter=2,
         max_rpm=_rpm_for(model),
-        memory=True
+        memory=False
     )
 
 
@@ -150,5 +150,5 @@ def get_writer(model=None):
         allow_delegation=False,
         max_iter=2,
         max_rpm=_rpm_for(model),
-        memory=True
+        memory=False
     )
