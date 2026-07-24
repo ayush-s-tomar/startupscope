@@ -6,8 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── Secrets helper ───────────────────────────────────────────────────────────
-def get_secret(key: str) -> str:
+def get_secret(key):
     try:
         import streamlit as st
         if key in st.secrets:
@@ -17,7 +16,6 @@ def get_secret(key: str) -> str:
     return os.getenv(key, "")
 
 
-# ── Credibility scoring ─────────────────────────────────────────────────────
 _DOMAIN_SCORES = {
     "crunchbase.com": 3, "techcrunch.com": 3, "bloomberg.com": 3,
     "reuters.com": 3, "forbes.com": 3, "inc.com": 3,
@@ -35,7 +33,7 @@ _DOMAIN_SCORES = {
 }
 
 
-def _score(link: str) -> int:
+def _score(link):
     if not link:
         return 0
     for domain, score in _DOMAIN_SCORES.items():
@@ -44,33 +42,30 @@ def _score(link: str) -> int:
     return 0
 
 
-def _format_results(results: list[dict], source_tag: str) -> str:
+def _format_results(results, source_tag):
     scored = sorted(results, key=lambda r: r.get("_score", 0), reverse=True)
     lines = []
     for r in scored:
-        score_label = f"[credibility: {r['_score']:+d}]" if r["_score"] != 0 else ""
-        # Trimmed from 220 -> 150 chars per snippet; combined with num=3
-        # results below, this materially cuts tokens per search call.
+        score_label = ""
+        if r["_score"] != 0:
+            score_label = "[credibility: " + ("+" if r["_score"] > 0 else "") + str(r["_score"]) + "]"
         snippet = (r.get("snippet") or "N/A")[:150]
-        lines.append(
-            f"[{source_tag}] {score_label}\n"
-            f"Title:   {r.get('title', 'N/A')}\n"
-            f"Snippet: {snippet}\n"
-            f"Link:    {r.get('link', 'N/A')}\n"
+        line = (
+            "[" + source_tag + "] " + score_label + "\n"
+            "Title:   " + r.get("title", "N/A") + "\n"
+            "Snippet: " + snippet + "\n"
+            "Link:    " + r.get("link", "N/A") + "\n"
         )
+        lines.append(line)
     return "\n".join(lines) if lines else ""
 
 
-# ── Search backends ─────────────────────────────────────────────────────────
-
-def _search_serper(query: str) -> list[dict]:
-    """Primary source — Google via Serper API."""
+def _search_serper(query):
     api_key = get_secret("SERPER_API_KEY")
     if not api_key:
         raise ValueError("SERPER_API_KEY not set")
 
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    # Reduced from 4 -> 3 results per query to cut tokens per search call.
     payload = {"q": query, "num": 3}
 
     response = requests.post(
@@ -85,20 +80,17 @@ def _search_serper(query: str) -> list[dict]:
     results = []
     for r in raw:
         link = r.get("link", "")
-        results.append({
-            "title":   r.get("title", ""),
+        entry = {
+            "title": r.get("title", ""),
             "snippet": r.get("snippet", ""),
-            "link":    link,
-            "_score":  _score(link)
-        })
+            "link": link,
+            "_score": _score(link)
+        }
+        results.append(entry)
     return results
 
 
-def _search_duckduckgo(query: str) -> list[dict]:
-    """
-    Fallback source — DuckDuckGo Instant Answer API.
-    Free, no key needed, but returns fewer results than Serper.
-    """
+def _search_duckduckgo(query):
     response = requests.get(
         "https://api.duckduckgo.com/",
         params={"q": query, "format": "json", "no_redirect": 1, "no_html": 1},
@@ -116,5 +108,67 @@ def _search_duckduckgo(query: str) -> list[dict]:
                 link = sub.get("FirstURL", "")
                 text = sub.get("Text", "")
                 if text:
-                    results.append({
-                        "title":   text[:80],
+                    entry = {
+                        "title": text[:80],
+                        "snippet": text,
+                        "link": link,
+                        "_score": _score(link)
+                    }
+                    results.append(entry)
+        else:
+            link = item.get("FirstURL", "")
+            text = item.get("Text", "")
+            if text:
+                entry = {
+                    "title": text[:80],
+                    "snippet": text,
+                    "link": link,
+                    "_score": _score(link)
+                }
+                results.append(entry)
+
+    abstract = data.get("AbstractText", "")
+    abstract_url = data.get("AbstractURL", "")
+    if abstract:
+        entry = {
+            "title": data.get("Heading", query),
+            "snippet": abstract,
+            "link": abstract_url,
+            "_score": _score(abstract_url)
+        }
+        results.append(entry)
+
+    return results[:3]
+
+
+@tool("search_the_internet")
+def search_the_internet(query):
+    """
+    Search the internet for information about a company or topic.
+    Uses Serper (Google) as primary source with automatic DuckDuckGo fallback.
+    Results are ranked by source credibility before being returned to the agent.
+    """
+    serper_results = []
+    serper_error = None
+
+    try:
+        serper_results = _search_serper(query)
+    except Exception as e:
+        serper_error = str(e)
+
+    if serper_results:
+        output = _format_results(serper_results, "Serper/Google")
+        return output or "No results found via Serper."
+
+    print("[search_tool] Serper unavailable (" + str(serper_error) + ") -- switching to DuckDuckGo.")
+
+    try:
+        ddg_results = _search_duckduckgo(query)
+    except Exception as e:
+        return "Both search sources failed.\nSerper error: " + str(serper_error) + "\nDuckDuckGo error: " + str(e)
+
+    if ddg_results:
+        output = _format_results(ddg_results, "DuckDuckGo")
+        return output or "No results found via DuckDuckGo."
+
+    return "No results found from any source."
