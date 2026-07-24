@@ -153,12 +153,43 @@ SHARED_CSS = """
         padding-bottom: 0.4rem !important;
         border-bottom: 1px solid var(--hairline) !important;
     }
+    .stMarkdown h3 {
+        color: var(--ink) !important;
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        margin-top: 1.2rem !important;
+    }
     .stMarkdown p, .stMarkdown li {
         color: var(--ink-dim) !important;
         line-height: 1.7 !important;
     }
     .stMarkdown strong {
         color: var(--ink) !important;
+    }
+
+    /* ── Hide Streamlit's auto-generated header anchor-link icons ──
+       Streamlit injects a small chain-link <a> next to every markdown
+       heading (h1–h6) for deep-linking. It's the little icon that shows
+       on hover next to headers like "RISKS". We don't use deep-linking,
+       so hide it everywhere rather than just on the levels we style. */
+    .stMarkdown h1 a,
+    .stMarkdown h2 a,
+    .stMarkdown h3 a,
+    .stMarkdown h4 a,
+    .stMarkdown h5 a,
+    .stMarkdown h6 a,
+    [data-testid="stMarkdownContainer"] h1 a,
+    [data-testid="stMarkdownContainer"] h2 a,
+    [data-testid="stMarkdownContainer"] h3 a,
+    [data-testid="stMarkdownContainer"] h4 a,
+    [data-testid="stMarkdownContainer"] h5 a,
+    [data-testid="stMarkdownContainer"] h6 a,
+    .stMarkdown [data-testid="stHeaderActionElements"],
+    [data-testid="stHeaderActionElements"] {
+        display: none !important;
+        visibility: hidden !important;
     }
 
     /* ── Download button ── */
