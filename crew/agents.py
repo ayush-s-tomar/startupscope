@@ -24,7 +24,7 @@ FALLBACK_MODEL = "groq/openai/gpt-oss-20b"
 MAX_OUTPUT_TOKENS = 900
 
 
-def call_llm(prompt, model=None, system=None):
+def call_llm(prompt, model=None, system=None, max_tokens=None):
     """
     ONE flat completion call. No agent loop, no tool-calling, no growing
     conversation history. This is the whole point of the rewrite:
@@ -43,7 +43,7 @@ def call_llm(prompt, model=None, system=None):
         messages=messages,
         api_key=get_secret("GROQ_API_KEY"),
         temperature=0.3,
-        max_tokens=MAX_OUTPUT_TOKENS
+        max_tokens=max_tokens or MAX_OUTPUT_TOKENS
     )
     text = response.choices[0].message.content
     usage = getattr(response, "usage", None)
@@ -57,7 +57,7 @@ def call_llm(prompt, model=None, system=None):
     return text
 
 
-def call_llm_with_retry(prompt, system=None, max_retries=4):
+def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
     """
     Retries a single flat call across primary -> fallback model on
     rate_limit/quota errors. Because each call is flat-cost (no compounding
@@ -69,7 +69,7 @@ def call_llm_with_retry(prompt, system=None, max_retries=4):
 
     for attempt in range(1, max_retries + 2):
         try:
-            return call_llm(prompt, model=current_model, system=system)
+            return call_llm(prompt, model=current_model, system=system, max_tokens=max_tokens)
         except Exception as e:
             last_error = e
             msg = str(e).lower()

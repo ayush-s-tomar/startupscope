@@ -102,7 +102,9 @@ def _schema_from_analysis_json(analysis_raw, company_name):
     schema = _empty_schema(company_name)
     try:
         data = _extract_json(analysis_raw)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as e:
+        print("[crew] WARNING: analysis JSON failed to parse (" + str(e) + "). Raw text was:")
+        print(analysis_raw[:500])
         return schema
 
     schema["overview"] = data.get("product_summary", "")
@@ -154,7 +156,12 @@ def run_crew(company_name, max_retries=4):
 
     print("[crew] Stage 1/3: research (1 flat LLM call)...")
     research_prompt = build_research_prompt(company_name, search_text)
-    research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries)
+    # Research JSON has funding, up to 3 competitors, up to 3 news items,
+    # tech_stack, etc -- 900 tokens was truncating this mid-object once
+    # search coverage widened, producing invalid JSON that cascaded into
+    # "Data unavailable" everywhere downstream. 1500 gives it room to
+    # actually finish the object.
+    research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries, max_tokens=1500)
 
     # Small real cooldown between stages -- with flat single calls (no
     # compounding loop), a short wait is enough; there's no growing
@@ -163,13 +170,13 @@ def run_crew(company_name, max_retries=4):
 
     print("[crew] Stage 2/3: analysis (1 flat LLM call)...")
     analysis_prompt = build_analysis_prompt(company_name, research_raw)
-    analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries)
+    analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries, max_tokens=1500)
 
     time.sleep(15)
 
     print("[crew] Stage 3/3: writing (1 flat LLM call)...")
     writing_prompt = build_writing_prompt(company_name, analysis_raw)
-    md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries)
+    md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=1200)
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
     saved_paths = _save_outputs(company_name, md_report, schema)
