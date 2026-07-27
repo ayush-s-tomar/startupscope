@@ -588,6 +588,39 @@ def _scrub_unsupported_infra_claims(md_report, search_text):
     return cleaned
 
 
+_COMPETITOR_MODEL_UNAVAILABLE_PATTERN = re.compile(
+    r",?\s*Model:\s*Data unavailable\s*,?", re.IGNORECASE
+)
+
+
+def _scrub_competitor_model_placeholder(md_report):
+    """
+    Competitor 'model' data (Airtable/Coda/Anytype-style entries in
+    Competitive Landscape) is almost never present in the search results
+    _run_searches actually pulls -- those queries target the researched
+    company, not its competitors -- so 'Model: Data unavailable' shows up
+    for every single competitor bullet, every time. That's honest (no
+    invented data), but repeating the same placeholder 2-3 times in a row
+    reads as broken/incomplete in front of an audience rather than as
+    intentional restraint. Rather than try to prompt the writer into
+    omitting it (which competes with other formatting rules already
+    fighting for prompt-following reliability), this mechanically strips
+    the clause after the report is rendered -- same pattern as the other
+    scrub functions in this file. Leaves Funding intact; only removes the
+    "Model: Data unavailable" fragment and any stray leading/trailing
+    comma it would otherwise leave behind (e.g.
+    "Funding: $11B, Model: Data unavailable" -> "Funding: $11B").
+    """
+    def _clean(m):
+        return "" if m.group(0).strip(", ") == "" else ""
+
+    cleaned = _COMPETITOR_MODEL_UNAVAILABLE_PATTERN.sub("", md_report)
+    # Collapse any double space/comma left behind by the removal.
+    cleaned = re.sub(r"\s+([.,])", r"\1", cleaned)
+    cleaned = re.sub(r",\s*$", "", cleaned, flags=re.MULTILINE)
+    return cleaned
+
+
 _SEARCH_FAILURE_MARKERS = (
     "search tool unavailable",
     "search failed for query",
@@ -759,6 +792,7 @@ def run_crew(company_name, max_retries=None):
     md_report = md_report.replace("`", "")
     md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
+    md_report = _scrub_competitor_model_placeholder(md_report)
     md_report = _fix_squished_headings(md_report)
     md_report = _fix_missing_heading_markers(md_report)
 
