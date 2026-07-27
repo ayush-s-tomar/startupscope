@@ -14,7 +14,7 @@ from datetime import datetime
 os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
-from crew.agents import call_llm_with_retry
+from crew.agents import call_llm_with_retry, DEFAULT_MAX_RETRIES
 from crew.tasks import (
     RESEARCH_SYSTEM, ANALYSIS_SYSTEM, WRITER_SYSTEM,
     build_research_prompt, build_analysis_prompt, build_writing_prompt
@@ -714,7 +714,13 @@ def _build_diagnostics_report(company_name, search_text, research_raw, analysis_
     return diag + md_report
 
 
-def run_crew(company_name, max_retries=4):
+def run_crew(company_name, max_retries=None):
+    # Falls back to the MAX_RETRIES env var (via agents.DEFAULT_MAX_RETRIES)
+    # when no explicit value is passed, so the Render dashboard setting
+    # actually takes effect instead of being silently ignored.
+    if max_retries is None:
+        max_retries = DEFAULT_MAX_RETRIES
+
     print("[crew] Searching (plain Python, no tokens spent here)...")
     search_text = _run_searches(company_name)
 

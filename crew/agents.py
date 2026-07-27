@@ -24,6 +24,10 @@ FALLBACK_MODEL = "groq/openai/gpt-oss-20b"
 # Capped hard so a single completion can never eat most of that budget.
 MAX_OUTPUT_TOKENS = 900
 
+# Default retry count, overridable via the MAX_RETRIES env var (set in the
+# Render dashboard / render.yaml) without touching code.
+DEFAULT_MAX_RETRIES = int(os.getenv("MAX_RETRIES", "4"))
+
 # Hard ceiling on how long a single litellm.completion() call is allowed to
 # block, in seconds. Without this, litellm has NO default timeout -- if the
 # underlying HTTP connection to Groq stalls (slow network, a hung TCP
@@ -96,13 +100,21 @@ def call_llm(prompt, model=None, system=None, max_tokens=None):
     return text
 
 
-def call_llm_with_retry(prompt, system=None, max_retries=4, max_tokens=None):
+def call_llm_with_retry(prompt, system=None, max_retries=None, max_tokens=None):
     """
     Retries a single flat call across primary -> fallback model on
     rate_limit/quota/timeout errors. Because each call is flat-cost (no
     compounding loop), a real wait actually clears the window -- no
     throttling needed between iterations because there ARE no iterations.
+
+    max_retries defaults to DEFAULT_MAX_RETRIES (from the MAX_RETRIES env
+    var) when not explicitly passed, so callers that don't care can rely
+    on the Render dashboard setting, while call sites that need a specific
+    override can still pass one directly.
     """
+    if max_retries is None:
+        max_retries = DEFAULT_MAX_RETRIES
+
     current_model = PRIMARY_MODEL
     current_max_tokens = max_tokens or MAX_OUTPUT_TOKENS
     last_error = None
