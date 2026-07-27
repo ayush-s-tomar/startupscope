@@ -526,6 +526,7 @@ _BANNED_INFRA_PHRASES = [
 _MONEY_BLEED_PATTERN = re.compile(
     r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)"
     r"(?:\s*,)?\s*"
+    r"(?:[a-z]+\s+){0,3}"   # tolerate short filler like "total raised" before the connector
     r"(?:including|and|at|with|raised in|following|via)\s+a\s*"
     r"(?:recent\s+)?[^.,;()]*",
     re.IGNORECASE,
@@ -755,11 +756,11 @@ def run_crew(company_name, max_retries=None):
     print("[crew] Stage 3/3: writing (1 flat LLM call)...")
     writing_prompt = build_writing_prompt(company_name, analysis_raw)
     md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=2000)
+    md_report = md_report.replace("`", "")
     md_report = _scrub_money_bleed(md_report)
     md_report = _scrub_unsupported_infra_claims(md_report, search_text)
     md_report = _fix_squished_headings(md_report)
     md_report = _fix_missing_heading_markers(md_report)
-    md_report = md_report.replace("`", "")
 
     schema = _schema_from_analysis_json(analysis_raw, company_name)
 
