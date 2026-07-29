@@ -1,22 +1,56 @@
-# StartupScope — AI-Powered Startup Intelligence Tool
+<div align="center">
 
-> A multi-agent research tool that automatically researches any startup or company and generates a structured intelligence report — covering funding, business model, competitors, strengths, risks, and recent news.
+# 🔍 StartupScope
+
+### AI-Powered Startup Intelligence Tool
+
+A multi-agent research tool that automatically researches any startup or company and generates a structured intelligence report — covering funding, business model, competitors, strengths, risks, and recent news.
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://startupscope-ai.streamlit.app/)
+[![CI](https://img.shields.io/github/actions/workflow/status/ayush-s-tomar/startupscope/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/ayush-s-tomar/startupscope/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![CrewAI](https://img.shields.io/badge/Agents-CrewAI-6E56CF?style=for-the-badge)](https://www.crewai.com/)
+[![Groq](https://img.shields.io/badge/LLM-Groq%20LLaMA%203.3-F55036?style=for-the-badge)](https://groq.com/)
+
+![StartupScope demo](./assets/demo.gif)
+
+</div>
+
+---
 
 ## 🌐 Live Demo
 
+👉 **[startupscope-ai.streamlit.app](https://startupscope-ai.streamlit.app/)**
+
+<details>
+<summary>Alternate deployment (Render)</summary>
+
 👉 https://startupscope-ephq.onrender.com
 
-> ⚡ Hosted on Render free tier — may take 15-20 seconds to wake up on first visit.
+> ⚡ Hosted on Render free tier — may take 15–20 seconds to wake up on first visit.
 
-### Side-by-side comparison in action
+</details>
 
-![StartupScope comparing Anthropic vs OpenAI](./demo-compare.png)
+---
+
+## 📸 Screenshot — Compare Mode
+
+![StartupScope comparing two companies side-by-side](./assets/demo-compare.png)
 
 *Real output from Compare Mode — two intelligence reports generated and rendered side-by-side in a single run.*
 
 ---
 
-## 📸 What it does
+## 🎬 Full Walkthrough
+
+https://github.com/user-attachments/assets/bb52f74e-5154-4d1f-8fa2-8cdf1db6ce4f
+
+*Click to play — full walkthrough of single-company research and side-by-side comparison.*
+
+---
+
+## What it does
 
 - Type any company name (e.g. Razorpay, Zepto, Notion)
 - 3 AI agents research, analyze, and write a full report
@@ -58,7 +92,8 @@
 | LLM | Groq API (LLaMA 3.3 70B) |
 | Web Search | Serper Dev API + DuckDuckGo (fallback) |
 | Frontend | Streamlit |
-| Deployment | Render |
+| Deployment | Render / Streamlit Community Cloud |
+| CI | GitHub Actions |
 
 ---
 
@@ -66,21 +101,25 @@
 
 ```
 startupscope/
-├── app.py                  # Streamlit UI — live progress, history sidebar, compare mode
-├── main.py                 # Terminal runner — single company or CSV batch mode
-├── history.py               # Report history persistence (load/add/clear)
-├── theme.py                 # Dual-theme (Brief/Console) injection
-├── requirements.txt         # Python dependencies
-├── render.yaml               # Render deployment config — health checks, env vars
-├── .env                      # API keys (not committed)
+├── app.py                    # Streamlit UI — live progress, history sidebar, compare mode
+├── main.py                   # Terminal runner — single company or CSV batch mode
+├── history.py                 # Report history persistence (load/add/clear)
+├── theme.py                   # Dual-theme (Brief/Console) injection
+├── requirements.txt           # Python dependencies
+├── render.yaml                 # Render deployment config — health checks, env vars
+├── .env                        # API keys (not committed)
 ├── .gitignore
 ├── crew/
-│   ├── agents.py            # 3 agent definitions + shared agent_context schema
-│   ├── tasks.py              # 3 task definitions, wired to agent_context
-│   └── crew.py                # Crew assembly, retry logic, JSON schema export
+│   ├── agents.py              # 3 agent definitions + shared agent_context schema
+│   ├── tasks.py                # 3 task definitions, wired to agent_context
+│   └── crew.py                  # Crew assembly, retry logic, JSON schema export
 ├── tools/
-│   └── search_tool.py        # Serper + DuckDuckGo fallback, credibility scoring
-└── outputs/                  # Generated .md and .json reports saved here
+│   └── search_tool.py          # Serper + DuckDuckGo fallback, credibility scoring
+├── assets/                     # README media (gif, screenshot)
+├── .github/
+│   └── workflows/
+│       └── ci.yml               # Lint + smoke-test on every push/PR
+└── outputs/                     # Generated .md and .json reports saved here
 ```
 
 ---
@@ -175,7 +214,18 @@ If any step fails on a transient API error, the crew retries automatically with 
 
 ---
 
-## Deployment (Free on Render)
+## CI/CD
+
+Every push and pull request to `main` runs a GitHub Actions workflow (`.github/workflows/ci.yml`) that:
+
+- Installs dependencies on Python 3.10, 3.11, and 3.12
+- Lints the codebase with `ruff`
+- Byte-compiles every module as a smoke test (`python -m py_compile`)
+- Fails the build on any lint or import error before it reaches `main`
+
+See the live status badge at the top of this README, or check the [Actions tab](https://github.com/ayush-s-tomar/startupscope/actions).
+
+### Deployment (Free on Render)
 
 1. Push this repo to GitHub
 2. Go to [render.com](https://render.com) → New → Web Service
@@ -197,13 +247,18 @@ If any step fails on a transient API error, the crew retries automatically with 
 - Building responsive, real-time UI feedback in Streamlit using threading and progress state
 - Designing for resilience on constrained infrastructure (free-tier rate limits, health checks, exponential backoff)
 - Deploying and maintaining a multi-service Python app on Render
+- Setting up CI (GitHub Actions) to catch lint/import errors before deploy
 
 ---
 
 ## License
 
-MIT License — feel free to use and modify.
+Distributed under the **MIT License**. See [`LICENSE`](./LICENSE) for the full text — free to use and modify.
 
 ---
 
-Built by [Ayush Singh Tomar](https://github.com/ayush-s-tomar)
+<div align="center">
+
+Built by **[Ayush Singh Tomar](https://github.com/ayush-s-tomar)**
+
+</div>
