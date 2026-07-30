@@ -1,5 +1,5 @@
-import json
 import datetime
+import json
 from pathlib import Path
 
 HISTORY_FILE = Path("outputs/history.json")
@@ -15,7 +15,7 @@ def load_history():
     """Returns the list of saved report entries, newest first."""
     _ensure_file()
     try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        with open(HISTORY_FILE, encoding="utf-8") as f:
             data = json.load(f)
         return sorted(data, key=lambda x: x["timestamp"], reverse=True)
     except (json.JSONDecodeError, KeyError):
@@ -27,13 +27,21 @@ def add_entry(company_name: str, content: str, mode: str = "single", extra_label
     _ensure_file()
     history = load_history()
 
+    # Computed once and reused for id/timestamp/display_time so all three
+    # reflect the exact same instant rather than three slightly-drifting
+    # datetime.now() calls. UTC (tz-aware) instead of naive local time --
+    # this shifts display_time from server-local to UTC, which is the
+    # correct behaviour for a Streamlit Cloud deploy anyway, since the
+    # server's local timezone isn't meaningful to the person viewing it.
+    now = datetime.datetime.now(datetime.timezone.utc)
+
     entry = {
-        "id": datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
+        "id": now.strftime("%Y%m%d_%H%M%S_%f"),
         "company": company_name,
         "mode": mode,
         "label": extra_label or company_name,
-        "timestamp": datetime.datetime.now().isoformat(),
-        "display_time": datetime.datetime.now().strftime("%d %b, %I:%M %p"),
+        "timestamp": now.isoformat(),
+        "display_time": now.strftime("%d %b, %I:%M %p UTC"),
         "content": content,
     }
 
