@@ -1,9 +1,10 @@
-from crew.crew import run_crew
 import argparse
 import csv
 import os
-import time
 import sys
+import time
+
+from crew.crew import run_crew
 
 # ── Rate-limit config from env (Feature J) ──────────────────────────────────
 # Set these in your .env locally (this file is CLI-only and never runs on
@@ -83,10 +84,10 @@ def run_batch(csv_path: str) -> None:
         print("-" * 40)
 
         try:
-            result, saved_paths = run_crew(company, max_retries=MAX_RETRIES)
+            _result, saved_paths = run_crew(company, max_retries=MAX_RETRIES)
             print(f"[{idx}/{total}] ✅ Done — {saved_paths['md']}")
             results_summary.append((company, "✅ success", saved_paths))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- batch mode must keep going past a single company's failure
             print(f"[{idx}/{total}] ❌ Failed — {str(e)[:120]}")
             results_summary.append((company, f"❌ failed: {str(e)[:80]}", {}))
 

@@ -1,6 +1,7 @@
-from crewai.tools import tool
-import requests
 import os
+
+import requests
+from crewai.tools import tool
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +12,7 @@ def get_secret(key):
         import streamlit as st
         if key in st.secrets:
             return st.secrets[key]
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 -- streamlit may be absent or secrets unset; both are expected
         pass
     return os.getenv(key, "")
 
@@ -162,7 +163,7 @@ def search_the_internet(query):
 
     try:
         serper_results = _search_serper(query)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- any Serper failure must fall through to the DuckDuckGo fallback
         serper_error = str(e)
 
     if serper_results:
@@ -173,7 +174,7 @@ def search_the_internet(query):
 
     try:
         ddg_results = _search_duckduckgo(query)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- last-resort fallback; must report failure, not raise
         return "Both search sources failed.\nSerper error: " + str(serper_error) + "\nDuckDuckGo error: " + str(e)
 
     if ddg_results:

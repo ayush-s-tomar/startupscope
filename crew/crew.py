@@ -1,8 +1,8 @@
 import json
-import re
 import os
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Must be set before crewai (or anything importing it, like crew.agents) is
 # imported: crewai's telemetry module tries to register OS signal handlers
@@ -14,11 +14,16 @@ from datetime import datetime
 os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
-from crew.agents import call_llm_with_retry, DEFAULT_MAX_RETRIES
 from crew.tasks import (
-    RESEARCH_SYSTEM, ANALYSIS_SYSTEM, WRITER_SYSTEM,
-    build_research_prompt, build_analysis_prompt, build_writing_prompt
+    ANALYSIS_SYSTEM,
+    RESEARCH_SYSTEM,
+    WRITER_SYSTEM,
+    build_analysis_prompt,
+    build_research_prompt,
+    build_writing_prompt,
 )
+
+from crew.agents import DEFAULT_MAX_RETRIES, call_llm_with_retry
 
 try:
     from tools.search_tool import search_the_internet
@@ -55,7 +60,7 @@ def _call_search_tool(query):
             result = attempt()
             if result:
                 return str(result)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- deliberately broad: trying several tool-call styles
             last_error = e
             continue
     return "(search failed for query '" + query + "': " + str(last_error) + ")"
@@ -93,7 +98,7 @@ def _extract_json(text):
 def _empty_schema(company_name):
     return {
         "company": company_name,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "overview": "",
         "quick_facts": {
             "founded": "", "hq": "", "team_size": "",
@@ -158,7 +163,7 @@ def _schema_from_analysis_json(analysis_raw, company_name):
 
 
 def _timestamp():
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 -- local time is intentional for filenames
 
 
 def _safe_name(company_name):
@@ -611,9 +616,6 @@ def _scrub_competitor_model_placeholder(md_report):
     comma it would otherwise leave behind (e.g.
     "Funding: $11B, Model: Data unavailable" -> "Funding: $11B").
     """
-    def _clean(m):
-        return "" if m.group(0).strip(", ") == "" else ""
-
     cleaned = _COMPETITOR_MODEL_UNAVAILABLE_PATTERN.sub("", md_report)
     # Collapse any double space/comma left behind by the removal.
     cleaned = re.sub(r"\s+([.,])", r"\1", cleaned)
@@ -647,7 +649,7 @@ def _check_search_health(search_text, queries_run):
         if any(marker in lower for marker in _SEARCH_FAILURE_MARKERS):
             failed.append(block.strip().split("\n")[-1][:200])
 
-    if len(failed) >= queries_run and queries_run > 0:
+    if 0 < queries_run <= len(failed):
         return failed[0] if failed else "unknown -- all queries returned empty"
     return None
 

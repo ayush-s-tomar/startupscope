@@ -1,8 +1,9 @@
 import os
 import re
 import time
-from dotenv import load_dotenv
+
 import litellm
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -12,7 +13,7 @@ def get_secret(key):
         import streamlit as st
         if key in st.secrets:
             return st.secrets[key]
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 -- streamlit may be absent or secrets unset; both are expected
         pass
     return os.getenv(key, "")
 
@@ -88,7 +89,7 @@ def call_llm(prompt, model=None, system=None, max_tokens=None):
         finish_reason = None
         try:
             finish_reason = response.choices[0].finish_reason
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- best-effort diagnostic read, failure here is harmless
             pass
         raise RuntimeError(
             "Empty completion content from " + (model or PRIMARY_MODEL)

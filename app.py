@@ -1,11 +1,13 @@
-import streamlit as st
-from crew.crew import run_crew
-from history import load_history, add_entry, clear_history
-from theme import inject_theme
-import threading
 import queue
-import time
 import re
+import threading
+import time
+
+import streamlit as st
+from history import add_entry, clear_history, load_history
+from theme import inject_theme
+
+from crew.crew import run_crew
 
 
 def _pdf_safe(text: str) -> str:
@@ -147,9 +149,9 @@ MAX_RUN_SECONDS = 240
 def _run_in_thread(company_name: str, result_queue: queue.Queue) -> None:
     """Run crew in a background thread, push result or exception into queue."""
     try:
-        result, path = run_crew(company_name)
+        result, _path = run_crew(company_name)
         result_queue.put(("ok", result))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- background thread boundary; any failure must reach the UI queue
         result_queue.put(("err", str(e)))
 
 
@@ -435,8 +437,8 @@ if mode == "Single Company":
                         mime="application/pdf",
                         use_container_width=True
                     )
-        except Exception as e:
-            st.error(f"Something went wrong: {str(e)}")
+        except Exception as e:  # noqa: BLE001 -- top-level UI boundary; any failure must surface to the user
+            st.error(f"Something went wrong: {e!s}")
             st.info("Check your API keys and try again.")
 
 
@@ -464,8 +466,8 @@ else:
         try:
             result_a = run_with_progress(company_a)
             st.success(f"✅ {company_a} done")
-        except Exception as e:
-            st.error(f"{company_a} failed: {str(e)}")
+        except Exception as e:  # noqa: BLE001 -- top-level UI boundary; any failure must surface to the user
+            st.error(f"{company_a} failed: {e!s}")
 
         # ── Company B with live progress ───────────────────────────────────
         if result_a:
@@ -473,8 +475,8 @@ else:
             try:
                 result_b = run_with_progress(company_b)
                 st.success(f"✅ {company_b} done")
-            except Exception as e:
-                st.error(f"{company_b} failed: {str(e)}")
+            except Exception as e:  # noqa: BLE001 -- top-level UI boundary; any failure must surface to the user
+                st.error(f"{company_b} failed: {e!s}")
 
         # ── Render comparison ──────────────────────────────────────────────
         if result_a and result_b:
