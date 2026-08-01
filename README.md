@@ -15,22 +15,28 @@ A multi-agent research tool that automatically researches any startup or company
 
 ![StartupScope demo](./assets/demo.gif)
 
+**👉 [Try it live](https://startupscope-ai.streamlit.app/)**
+
 </div>
 
 ---
 
-## 🌐 Live Demo
+## 📑 Table of Contents
 
-👉 **[startupscope-ai.streamlit.app](https://startupscope-ai.streamlit.app/)**
-
-<details>
-<summary>Alternate deployment (Render)</summary>
-
-👉 https://startupscope-ephq.onrender.com
-
-> ⚡ Hosted on Render free tier — may take 15–20 seconds to wake up on first visit.
-
-</details>
+- [Screenshot — Compare Mode](#-screenshot--compare-mode)
+- [Full Walkthrough](#-full-walkthrough)
+- [What It Does](#what-it-does)
+- [Features](#features)
+- [Sample Output](#-sample-output)
+- [How the Agents Work](#how-the-agents-work)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Setup & Installation](#setup--installation)
+- [How to Use](#how-to-use)
+- [CI/CD & Deployment](#cicd)
+- [Known Limitations](#known-limitations)
+- [What I Learned](#what-i-learned)
+- [License](#license)
 
 ---
 
@@ -76,11 +82,59 @@ https://github.com/user-attachments/assets/bb52f74e-5154-4d1f-8fa2-8cdf1db6ce4f
 - **Resilient Retries** — Exponential backoff automatically retries transient Groq/API failures instead of crashing
 - **Clean Dual-Theme UI** — Professional dark-themed interface with toggleable "Brief" and "Console" visual modes
 
-### Known Limitations
+---
 
-- Some fields (founding year, HQ, exact funding totals) come back as "Not specified" for companies that don't publicly disclose this data or where search results are sparse — the agents are instructed to never invent figures, so an honest gap is shown instead of a guess
-- Report quality depends on Serper/DuckDuckGo result freshness; very recent funding rounds or news may not surface immediately
-- Free-tier Groq and Serper rate limits mean heavy back-to-back usage can trigger the retry/backoff logic, slightly increasing response time
+## 📄 Sample Output
+
+<details>
+<summary>Click to expand — excerpt from a real generated report (Razorpay)</summary>
+
+```markdown
+# Razorpay — Intelligence Report
+
+## Funding
+Total raised: $741M | Latest round: Series F ($375M, 2021)
+Valuation: $7.5B | Key investors: GIC, Sequoia, Tiger Global
+
+## Business Model
+B2B payment gateway + neobanking suite for Indian SMEs and
+enterprises, monetizing via transaction fees and SaaS add-ons
+(RazorpayX, Capital).
+
+## Strengths
+- Deep integration with Indian banking rails (UPI, NEFT, RTGS)
+- Diversified beyond payments into lending and banking
+
+## Risks
+- Margin pressure from UPI's zero-MDR regulation
+- Intensifying competition from Cashfree, PayU, Stripe India
+```
+
+*Full reports also include competitors, recent news, and a structured verdict — see the [live demo](https://startupscope-ai.streamlit.app/) for a complete example.*
+
+</details>
+
+---
+
+## How the Agents Work
+
+```mermaid
+flowchart TD
+    A[User Input: Company Name] --> B[Agent 1: Researcher]
+    B -->|Serper API| C{Search succeeds?}
+    C -->|No| D[DuckDuckGo Fallback]
+    C -->|Yes| E[Rank sources by credibility]
+    D --> E
+    E --> F[Write findings to shared agent_context]
+    F --> G[Agent 2: Analyst]
+    G --> H[Extract strengths, risks,<br/>market opportunity, verdict]
+    H --> I[Agent 3: Writer]
+    I --> J[Format agent_context into report]
+    J --> K[Markdown Report .md]
+    J --> L[Structured JSON .json]
+```
+
+If any step fails on a transient API error, the crew retries automatically with exponential backoff before giving up.
 
 ---
 
@@ -189,31 +243,6 @@ Groww
 
 ---
 
-## How the Agents Work
-
-```
-User Input (Company Name)
-        ↓
-[Agent 1: Researcher]
-Searches the web (Serper → DuckDuckGo fallback),
-ranks sources by credibility, writes findings into
-shared agent_context
-        ↓
-[Agent 2: Analyst]
-Reads agent_context, extracts strengths, risks,
-market opportunity, and a verdict
-        ↓
-[Agent 3: Writer]
-Reads the fully-populated agent_context,
-formats everything into a clean markdown report
-        ↓
-Markdown Report (.md)  +  Structured JSON Schema (.json)
-```
-
-If any step fails on a transient API error, the crew retries automatically with exponential backoff before giving up.
-
----
-
 ## CI/CD
 
 Every push and pull request to `main` runs a GitHub Actions workflow (`.github/workflows/ci.yml`) that:
@@ -235,6 +264,14 @@ See the live status badge at the top of this README, or check the [Actions tab](
 6. Add environment variables: `GROQ_API_KEY` and `SERPER_API_KEY`
 7. (Optional) tune `MAX_RETRIES` and `BATCH_DELAY` from the Render dashboard without touching code
 8. Deploy! Render's health check automatically restarts the service if it crashes
+
+---
+
+## Known Limitations
+
+- Some fields (founding year, HQ, exact funding totals) come back as "Not specified" for companies that don't publicly disclose this data or where search results are sparse — the agents are instructed to never invent figures, so an honest gap is shown instead of a guess
+- Report quality depends on Serper/DuckDuckGo result freshness; very recent funding rounds or news may not surface immediately
+- Free-tier Groq and Serper rate limits mean heavy back-to-back usage can trigger the retry/backoff logic, slightly increasing response time
 
 ---
 
