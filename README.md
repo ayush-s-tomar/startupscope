@@ -146,7 +146,7 @@ If any step fails on a transient API error, the crew retries automatically with 
 | LLM | Groq API (LLaMA 3.3 70B) |
 | Web Search | Serper Dev API + DuckDuckGo (fallback) |
 | Frontend | Streamlit |
-| Deployment | Render / Streamlit Community Cloud |
+| Deployment | Streamlit Community Cloud |
 | CI | GitHub Actions |
 
 ---
@@ -160,7 +160,6 @@ startupscope/
 ├── history.py                 # Report history persistence (load/add/clear)
 ├── theme.py                   # Dual-theme (Brief/Console) injection
 ├── requirements.txt           # Python dependencies
-├── render.yaml                 # Render deployment config — health checks, env vars
 ├── .env                        # API keys (not committed)
 ├── .gitignore
 ├── crew/
@@ -254,17 +253,6 @@ Every push and pull request to `main` runs a GitHub Actions workflow (`.github/w
 
 See the live status badge at the top of this README, or check the [Actions tab](https://github.com/ayush-s-tomar/startupscope/actions).
 
-### Deployment (Free on Render)
-
-1. Push this repo to GitHub
-2. Go to [render.com](https://render.com) → New → Web Service
-3. Connect your GitHub repo
-4. Set **Build Command**: `pip install -r requirements.txt`
-5. Set **Start Command**: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
-6. Add environment variables: `GROQ_API_KEY` and `SERPER_API_KEY`
-7. (Optional) tune `MAX_RETRIES` and `BATCH_DELAY` from the Render dashboard without touching code
-8. Deploy! Render's health check automatically restarts the service if it crashes
-
 ---
 
 ## Known Limitations
@@ -283,7 +271,7 @@ See the live status badge at the top of this README, or check the [Actions tab](
 - Sequential agent orchestration and task chaining with structured, typed outputs (JSON schema generation from LLM output)
 - Building responsive, real-time UI feedback in Streamlit using threading and progress state
 - Designing for resilience on constrained infrastructure (free-tier rate limits, health checks, exponential backoff)
-- Deploying and maintaining a multi-service Python app on Render
+- Deploying and maintaining a multi-service Python app on Streamlit Community Cloud
 - Setting up CI (GitHub Actions) to catch lint/import errors before deploy
 
 ---
