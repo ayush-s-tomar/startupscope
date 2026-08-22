@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>StartupScope</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230D0D0D'/%3E%3Ctext x='50' y='68' font-family='Arial,sans-serif' font-size='58' font-weight='700' fill='%23FFFFFF' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E" />
 <style>
 :root{
   --bg:#0D0D0D; --panel:#141414; --panel-alt:#0A0A0A;
@@ -16,12 +17,12 @@
   --accent:#0A0A0A; --on-accent:#FFFFFF; --hairline:#B8B3A8; --panel-border:#A8A297;
 }
 *{box-sizing:border-box}
-body{
+body{overflow-x:hidden;max-width:100vw;
   margin:0; background:var(--bg); color:var(--ink-dim);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   transition:background .2s, color .2s;
 }
-.wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem 4rem}
+.wrap{max-width:1100px;width:100%;margin:0 auto;padding:3rem 1.5rem 4rem;box-sizing:border-box;overflow-x:hidden}
 .header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap}
 .main-title{font-size:2.6rem;font-weight:700;color:var(--ink);letter-spacing:-0.5px;margin:0 0 .2rem}
 .subtitle{font-size:1rem;color:var(--ink-faint);margin-bottom:1.5rem}
