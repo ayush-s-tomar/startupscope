@@ -197,14 +197,44 @@ input[type=text]:focus{outline:none;border-color:var(--ink-dim)}
 </div>
 
 <script>
-// ── Tiny markdown -> HTML renderer (headings, bold, lists, hr, paragraphs) ──
+// ── Tiny markdown -> HTML renderer (headings, bold, lists, hr, paragraphs, tables) ──
 function renderMarkdown(md) {
   const lines = md.split("\n");
   let html = "";
   let inList = false;
+  let tableRows = null;
+
   const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  const closeTable = () => {
+    if (tableRows && tableRows.length) {
+      const [header, ...body] = tableRows;
+      html += "<table class='md-table'><thead><tr>" +
+        header.map(c => `<th>${inlineMd(c)}</th>`).join("") +
+        "</tr></thead><tbody>" +
+        body.map(row => "<tr>" + row.map(c => `<td>${inlineMd(c)}</td>`).join("") + "</tr>").join("") +
+        "</tbody></table>";
+    }
+    tableRows = null;
+  };
+
+  const isTableRow = (line) => /^\|.*\|$/.test(line.trim());
+  const isSeparatorRow = (line) => /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(line.trim());
+  const splitRow = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+
   for (let raw of lines) {
     const line = raw.trim();
+
+    if (isTableRow(line)) {
+      const cells = splitRow(line);
+      if (isSeparatorRow(line)) continue;
+      closeList();
+      if (!tableRows) tableRows = [];
+      tableRows.push(cells);
+      continue;
+    } else if (tableRows) {
+      closeTable();
+    }
+
     if (!line) { closeList(); continue; }
     if (line === "---") { closeList(); html += "<hr class='divider'>"; continue; }
     if (line.startsWith("## ")) { closeList(); html += `<h2>${esc(line.slice(3))}</h2>`; continue; }
@@ -218,6 +248,7 @@ function renderMarkdown(md) {
     html += `<p>${inlineMd(line)}</p>`;
   }
   closeList();
+  closeTable();
   return html;
 }
 function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
