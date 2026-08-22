@@ -1,8 +1,10 @@
+fastapi
+uvicorn[standard]
 crewai
 crewai-tools
 langchain-groq
-streamlit
 python-dotenv
 litellm==1.57.4
 tiktoken==0.7.0
 fpdf2
+pydantic

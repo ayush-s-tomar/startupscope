@@ -4,13 +4,6 @@ import re
 import time
 from datetime import datetime, timezone
 
-# Must be set before crewai (or anything importing it, like crew.agents) is
-# imported: crewai's telemetry module tries to register OS signal handlers
-# at import/init time, which only works in the main thread. This app calls
-# run_crew() from inside a background thread (see app.py's
-# run_with_progress), so those registrations were failing and logging noisy
-# tracebacks on every run. Disabling telemetry up front skips that
-# registration entirely.
 os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
@@ -35,14 +28,7 @@ OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 
-# ── Search: plain Python, no LLM involved, no tokens spent here ────────────
-
 def _call_search_tool(query):
-    """
-    Tries the common CrewAI tool invocation styles in order, since the
-    exact interface of tools/search_tool.py wasn't available while writing
-    this. If none of these match, this is the one function to fix.
-    """
     if search_the_internet is None:
         return "(search tool unavailable: tools/search_tool.py not found)"
 
@@ -60,7 +46,7 @@ def _call_search_tool(query):
             result = attempt()
             if result:
                 return str(result)
-        except Exception as e:  # noqa: BLE001 -- deliberately broad: trying several tool-call styles
+        except Exception as e:  # noqa: BLE001
             last_error = e
             continue
     return "(search failed for query '" + query + "': " + str(last_error) + ")"
@@ -80,8 +66,6 @@ def _run_searches(company_name):
         time.sleep(1)
     return "\n\n".join(results)
 
-
-# ── JSON helpers ─────────────────────────────────────────────────────────
 
 def _extract_json(text):
     text = text.strip()
@@ -126,10 +110,6 @@ def _schema_from_analysis_json(analysis_raw, company_name):
 
     funding = data.get("funding", {})
     if not isinstance(funding, dict):
-        # Same non-dict-funding guard as _strip_unsupported_total_raised --
-        # this function runs independently on analysis_raw, so it needs
-        # its own copy of the guard rather than relying on the earlier
-        # stage having already fixed it.
         print("[crew] WARNING: 'funding' was not an object (" + type(funding).__name__ + ") in analysis stage -- coercing")
         funding = {"total_raised": str(funding) if funding else "", "last_round": "", "investors": []}
 
@@ -163,7 +143,7 @@ def _schema_from_analysis_json(analysis_raw, company_name):
 
 
 def _timestamp():
-    return datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 -- local time is intentional for filenames
+    return datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005
 
 
 def _safe_name(company_name):
@@ -184,25 +164,7 @@ def _save_outputs(company_name, md_report, schema):
     return {"md": md_path, "json": json_path}
 
 
-# ── Main pipeline: 3 flat calls, nothing else touches the LLM ─────────────
-
 def _parse_money(text):
-    """
-    Extracts monetary figures from text as normalized dollar floats,
-    respecting decimal points and units (B/billion, M/million) instead of
-    naively concatenating digits. The previous digit-strip approach treated
-    '$13.2 billion' and '$132 billion' as the same because it dropped the
-    decimal point -- this is exactly the kind of false match that let a
-    wrong figure through the guard undetected.
-
-    Coerces input to str first: the model has been known to return
-    funding.total_raised/last_round as a raw JSON number (e.g. 3000000000)
-    instead of a string like "$3B". re.finditer requires a str/bytes-like
-    object and raises "expected string or bytes-like object, got 'int'"
-    on a bare int/float -- this crashed the whole report generation the
-    moment that happened, so every caller is protected here in one place
-    rather than needing every call site to remember to cast first.
-    """
     text = str(text) if text is not None else ""
     values = []
     for match in re.finditer(r"\$?\s*(\d+(?:\.\d+)?)\s*(billion|bn|b\b|million|mn|m\b)?", text, re.IGNORECASE):
@@ -216,7 +178,7 @@ def _parse_money(text):
         elif unit.startswith("m"):
             num *= 1_000_000
         else:
-            continue  # bare number with no unit is too ambiguous to use
+            continue
         values.append(num)
     return values
 
@@ -228,28 +190,9 @@ _MONEY_PATTERN = re.compile(
 
 
 def _sanitize_money_field(value):
-    """
-    total_raised / last_round are supposed to be short clean values like
-    '$132B' or 'Series H - $65B'. Instead the model has been known to
-    return a full sentence fragment with the number buried inside it
-    (e.g. '132B and a recent Series H round'), which then bleeds straight
-    into the middle of a report sentence, rendering as a raw inline code
-    chip in the Strengths section. Rather than trust the model to keep
-    following the "keep it short" instruction, this pulls out just the
-    first dollar-amount-shaped substring (plus an optional leading round
-    label like 'Series H') and throws away any surrounding prose. If
-    nothing money-shaped is found at all, fall back to
-    'Not publicly available' rather than passing raw prose through.
-    """
     if value is None or value == "":
         return value
     if not isinstance(value, str):
-        # Model returned a raw JSON number instead of a string like "$3B".
-        # Convert it to a plain string so the same money-shape check below
-        # can run on it -- a bare number with no unit word (e.g. "3000000000")
-        # won't match _MONEY_PATTERN, so this correctly falls through to the
-        # "Not publicly available" branch below rather than crashing or
-        # silently leaving a raw int sitting in the schema/report.
         value = str(value)
 
     value = value.strip()
@@ -277,17 +220,6 @@ def _sanitize_money_field(value):
 
 
 def _strip_unsupported_total_raised(research_raw, search_text):
-    """
-    Prompt instructions alone weren't reliably stopping the model from
-    reporting a valuation or a single round's size as total_raised. This
-    parses total_raised as an actual dollar amount (respecting decimals
-    and units) and checks whether a matching amount (within 2% tolerance,
-    to allow minor rounding) appears anywhere in the raw search text. If
-    not, it's overwritten instead of silently repeating an unsupported
-    figure. It also sanitizes total_raised/last_round to short clean
-    values, since the model has separately been known to bury the money
-    value inside a full sentence fragment rather than returning it alone.
-    """
     try:
         data = _extract_json(research_raw)
     except (json.JSONDecodeError, ValueError):
@@ -295,12 +227,6 @@ def _strip_unsupported_total_raised(research_raw, search_text):
 
     funding = data.get("funding", {})
     if not isinstance(funding, dict):
-        # Model returned funding as a plain string/number instead of an
-        # object (e.g. "funding": "$3B raised") -- .get() on it would
-        # crash with "'str' object has no attribute 'get'". Coerce to the
-        # expected shape, keeping the raw value as total_raised so it
-        # still gets a chance to be sanitized/verified below instead of
-        # silently losing the data or crashing the whole pipeline.
         print("[crew] WARNING: 'funding' was not an object (" + type(funding).__name__ + ") in research stage -- coercing")
         funding = {"total_raised": str(funding) if funding else "", "last_round": "", "investors": []}
         data["funding"] = funding
@@ -346,22 +272,6 @@ _PLAUSIBLE_FUNDING_CAP = 300_000_000_000
 
 
 def _extract_competitor_funding(result_text, name):
-    """
-    Scans result_text sentence by sentence rather than treating the whole
-    blob as one pool of numbers. A search for '<competitor> total funding
-    raised' pulls in a lot of unrelated financial figures (parent company
-    market cap, revenue, unrelated deals) -- taking the single largest
-    number anywhere in that blob picked up exactly this kind of noise
-    (e.g. Google's overall scale showing up as "Google DeepMind funding").
-
-    A sentence only counts as evidence if it contains BOTH the company
-    name and a funding-related keyword ('raised', 'funding', 'invested',
-    etc.) -- so a stray large number elsewhere in the results, with no
-    connection to the company or to funding, is ignored. Values above
-    _PLAUSIBLE_FUNDING_CAP are also rejected outright as more likely to be
-    a misattributed market cap/revenue number than an actual funding
-    total.
-    """
     name_lower = name.lower()
     sentences = re.split(r"(?<=[.!?])\s+", result_text)
     candidates = []
@@ -380,22 +290,6 @@ def _extract_competitor_funding(result_text, name):
 
 
 def _enrich_competitor_funding(analysis_raw, max_competitors=3):
-    """
-    Competitor funding was always coming back 'Not publicly available' --
-    not because the model was refusing to guess, but because the search
-    stage (_run_searches) only ever queries for the TARGET company's
-    funding. There was never any competitor funding data anywhere in the
-    pipeline for the model to draw from, so 'Not publicly available' was
-    the only honest answer it could give.
-
-    This patches that gap directly: once the analysis stage has identified
-    who the competitors are, run one small targeted search per competitor
-    and mechanically extract a funding figure from the results using
-    _extract_competitor_funding, which requires the number to appear in a
-    sentence that actually mentions both the company and funding -- not
-    just anywhere in the results. This does not touch the model at all --
-    it's a second, narrow, plain-Python search-and-patch step.
-    """
     try:
         data = _extract_json(analysis_raw)
     except (json.JSONDecodeError, ValueError):
@@ -408,12 +302,6 @@ def _enrich_competitor_funding(analysis_raw, max_competitors=3):
     changed = False
     for i, comp in enumerate(competitors):
         if not isinstance(comp, dict):
-            # Model returned a bare competitor name (e.g. "Anthropic")
-            # instead of an object with name/model/funding keys.
-            # comp.get(...) below would crash with "'str' object has no
-            # attribute 'get'" -- wrap it into the expected shape in
-            # place so this function and every downstream consumer see a
-            # consistent dict, not a raw string.
             print("[crew] WARNING: competitor entry was not an object (" + type(comp).__name__ + ") -- coercing: '" + str(comp)[:60] + "'")
             comp = {"name": str(comp).strip(), "model": "Not publicly available", "funding": "Not publicly available"}
             competitors[i] = comp
@@ -425,14 +313,14 @@ def _enrich_competitor_funding(analysis_raw, max_competitors=3):
             continue
         existing = comp.get("funding", "")
         if existing and existing != "Not publicly available":
-            continue  # model already had something -- don't overwrite
+            continue
 
         query = name + " total funding raised"
         result_text = _call_search_tool(query)
         time.sleep(1)
 
         best = _extract_competitor_funding(result_text, name)
-        if best is not None and best >= 1_000_000:  # sanity floor
+        if best is not None and best >= 1_000_000:
             if best >= 1_000_000_000:
                 display = "$" + _format_num(best / 1_000_000_000) + "B"
             else:
@@ -457,23 +345,11 @@ _KNOWN_SECTION_HEADINGS = [
 
 _SQUISHED_HEADING_PATTERN = re.compile(
     r"(##\s*(?:" + "|".join(re.escape(h) for h in _KNOWN_SECTION_HEADINGS) + r"))"
-    r"([A-Za-z])",  # immediately followed by a letter -- no space, no newline
+    r"([A-Za-z])",
 )
 
 
 def _fix_squished_headings(md_report):
-    """
-    The writer model has been observed occasionally emitting a section
-    heading and its content as one unbroken line with zero separator --
-    e.g. "## Recent NewsData unavailable" instead of "## Recent News\n\n
-    Data unavailable". Markdown renders this as the heading and the first
-    word of the content jammed together ("Recent NewsData unavailable"),
-    which is confusing and looks broken in both the Streamlit view and the
-    PDF export. This is a prompt-following slip, not something a stricter
-    instruction reliably prevents, so this inserts the missing line break
-    mechanically whenever one of the known section headings is directly
-    followed by a letter with no space or newline in between.
-    """
     def _insert_break(m):
         print("[crew] fixed squished heading: '" + m.group(0)[:40] + "...'")
         return m.group(1) + "\n\n" + m.group(2)
@@ -487,20 +363,6 @@ _MISSING_HEADING_MARKER_PATTERN = re.compile(
 
 
 def _fix_missing_heading_markers(md_report):
-    """
-    A second, distinct variant of the same underlying model slip: instead
-    of writing a proper "## Recent News" heading on its own line, the
-    writer has been observed dropping the "##" marker (and the blank line)
-    entirely, gluing the heading text directly onto the end of the
-    previous section's last sentence -- e.g. "...Stripe's payment
-    processing.Recent News" followed immediately by that section's bullet
-    list. _fix_squished_headings only catches heading markers that exist
-    but are stuck to their OWN content; this catches the marker missing
-    outright. Matches sentence-ending punctuation immediately followed by
-    one of the known heading names and then a newline (the bullet list or
-    next line always follows immediately in this failure mode), and
-    rewrites it as a proper heading with correct spacing.
-    """
     def _insert_heading(m):
         print("[crew] restored missing heading marker: '" + m.group(2) + "'")
         return m.group(1) + "\n\n## " + m.group(2) + "\n\n"
@@ -509,7 +371,6 @@ def _fix_missing_heading_markers(md_report):
 
 
 def _format_num(n):
-    """Formats a float as a clean string, dropping a trailing '.0'."""
     if n == int(n):
         return str(int(n))
     return str(round(n, 1))
@@ -523,15 +384,10 @@ _BANNED_INFRA_PHRASES = [
 ]
 
 
-# ── UPDATED: money-bleed pattern broadened past the single literal phrase
-# "and a recent" to also catch "including a recent", "at a", "with a
-# recent", etc. -- the same underlying model slip (a clean money value
-# getting a trailing prose fragment glued onto it) shows up with several
-# different connector words, and the old pattern only caught one of them.
 _MONEY_BLEED_PATTERN = re.compile(
     r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)"
     r"(?:\s*,)?\s*"
-    r"(?:[a-z]+\s+){0,3}"   # tolerate short filler like "total raised" before the connector
+    r"(?:[a-z]+\s+){0,3}"
     r"(?:including|and|at|with|raised in|following|via)\s+a\s*"
     r"(?:recent\s+)?[^.,;()]*",
     re.IGNORECASE,
@@ -539,21 +395,6 @@ _MONEY_BLEED_PATTERN = re.compile(
 
 
 def _scrub_money_bleed(md_report):
-    """
-    Catches garbled money fragments like '2.76B, including a recent 1B
-    round' or '1B at a 16B valuation' getting glued mid-sentence anywhere
-    in the FINAL rendered report text -- not just the two structured
-    total_raised/last_round fields (those are handled separately by
-    _sanitize_money_field). This is a last-resort mechanical scrub over
-    the FINAL rendered report text, catching the same 'money fragment +
-    trailing prose describing a round' shape wherever it appears and
-    collapsing it down to just the clean money value. Broadened to catch
-    several connector words (including/at/with/etc.), not just the single
-    literal phrase "and a recent" the original version matched -- that
-    narrowness was letting real cases (e.g. "including a recent", "at a")
-    slip through untouched. Also normalizes a missing space if the scrub
-    leaves a money value directly butted against an opening parenthesis.
-    """
     def _clean_match(m):
         money = re.search(r"\$?\d+(?:\.\d+)?\s*(?:B|billion|M|million)", m.group(0), re.IGNORECASE)
         if not money:
@@ -570,19 +411,11 @@ def _scrub_money_bleed(md_report):
 
 
 def _scrub_unsupported_infra_claims(md_report, search_text):
-    """
-    Prompt-level instructions failed to stop 'multi-cloud infrastructure'
-    from appearing TWICE across different runs, in different stages. This
-    is a mechanical last line of defense: any banned infra phrase that
-    doesn't literally appear in the raw search text gets stripped from the
-    final report text directly, regardless of what the model decided to
-    write.
-    """
     search_lower = search_text.lower()
     cleaned = md_report
     for phrase in _BANNED_INFRA_PHRASES:
         if phrase in search_lower:
-            continue  # actually supported by a source, leave it
+            continue
         pattern = re.compile(re.escape(phrase), re.IGNORECASE)
         if pattern.search(cleaned):
             print("[crew] stripping unsupported infra claim from report: '" + phrase + "'")
@@ -599,25 +432,7 @@ _COMPETITOR_MODEL_UNAVAILABLE_PATTERN = re.compile(
 
 
 def _scrub_competitor_model_placeholder(md_report):
-    """
-    Competitor 'model' data (Airtable/Coda/Anytype-style entries in
-    Competitive Landscape) is almost never present in the search results
-    _run_searches actually pulls -- those queries target the researched
-    company, not its competitors -- so 'Model: Data unavailable' shows up
-    for every single competitor bullet, every time. That's honest (no
-    invented data), but repeating the same placeholder 2-3 times in a row
-    reads as broken/incomplete in front of an audience rather than as
-    intentional restraint. Rather than try to prompt the writer into
-    omitting it (which competes with other formatting rules already
-    fighting for prompt-following reliability), this mechanically strips
-    the clause after the report is rendered -- same pattern as the other
-    scrub functions in this file. Leaves Funding intact; only removes the
-    "Model: Data unavailable" fragment and any stray leading/trailing
-    comma it would otherwise leave behind (e.g.
-    "Funding: $11B, Model: Data unavailable" -> "Funding: $11B").
-    """
     cleaned = _COMPETITOR_MODEL_UNAVAILABLE_PATTERN.sub("", md_report)
-    # Collapse any double space/comma left behind by the removal.
     cleaned = re.sub(r"\s+([.,])", r"\1", cleaned)
     cleaned = re.sub(r",\s*$", "", cleaned, flags=re.MULTILINE)
     return cleaned
@@ -632,16 +447,6 @@ _SEARCH_FAILURE_MARKERS = (
 
 
 def _check_search_health(search_text, queries_run):
-    """
-    Counts how many of the individual search queries actually failed
-    (matched one of the known failure-marker strings that _call_search_tool
-    / search_the_internet emit on error) versus how many returned real
-    content. Returns the failure reason string if ALL queries failed,
-    otherwise returns None. This is checked right after search, before any
-    LLM calls are made, so a total search failure is caught immediately
-    instead of silently cascading into a fully empty report several stages
-    later with no visible explanation of why.
-    """
     blocks = search_text.split("\n\nQuery: ")
     failed = []
     for block in blocks:
@@ -655,12 +460,6 @@ def _check_search_health(search_text, queries_run):
 
 
 def _build_search_failure_report(company_name, reason):
-    """
-    Instead of letting a total search failure silently cascade into a
-    report where every field says 'Data unavailable' with zero
-    explanation, this builds a small report that states the real reason
-    directly, so it's visible on-screen without needing Cloud logs.
-    """
     md_report = (
         "# " + company_name + " — Intelligence Report\n\n"
         "## Search Failed\n"
@@ -681,15 +480,6 @@ _EMPTY_MARKERS = ("", "not publicly available", "not specified", "n/a", "unknown
 
 
 def _is_effectively_empty(schema):
-    """
-    True if the schema has essentially no real content -- every scalar
-    field is blank/a known placeholder AND every list field is empty.
-    Used to catch the case where the pipeline runs start-to-finish without
-    raising any exception, but produced nothing usable (e.g. search
-    returned no real content, so every downstream field is honestly
-    "Not publicly available" -- correct behavior per-field, but the
-    aggregate result is a useless report that gives no visibility into why).
-    """
     scalars = [
         schema.get("overview", ""),
         schema.get("what_they_do", ""),
@@ -710,12 +500,6 @@ def _is_effectively_empty(schema):
 
 
 def _count_search_hits(search_text):
-    """
-    Counts how many of the individual 'Query: ...' blocks in search_text
-    contain what looks like real content, vs. an error/empty marker. Used
-    only for the diagnostics report -- a quick eyeball of search health
-    without needing Cloud logs.
-    """
     blocks = search_text.split("\n\nQuery: ")
     total = len(blocks)
     failed = 0
@@ -727,19 +511,13 @@ def _count_search_hits(search_text):
 
 
 def _build_diagnostics_report(company_name, search_text, research_raw, analysis_raw, md_report):
-    """
-    Builds a version of the report with a Diagnostics section prepended,
-    showing raw pipeline output at each stage. Only triggered when the
-    final schema came back effectively empty. This is meant to be pasted
-    directly from the app UI -- no need to dig through Cloud logs.
-    """
     good_hits, total_queries = _count_search_hits(search_text)
 
     diag = (
         "# ⚠️ Diagnostics — " + company_name + "\n\n"
         "The report below came back with almost no real data. Here is the "
         "raw pipeline output at each stage so the cause is visible without "
-        "checking Cloud logs.\n\n"
+        "checking logs.\n\n"
         "**Search:** " + str(good_hits) + " / " + str(total_queries) + " queries "
         "returned usable content.\n\n"
         "**First 100 chars of search text:**\n```\n" + search_text[:100].replace("`", "'") + "\n```\n\n"
@@ -750,13 +528,23 @@ def _build_diagnostics_report(company_name, search_text, research_raw, analysis_
     return diag + md_report
 
 
-def run_crew(company_name, max_retries=None):
-    # Falls back to the MAX_RETRIES env var (via agents.DEFAULT_MAX_RETRIES)
-    # when no explicit value is passed, so the Render dashboard setting
-    # actually takes effect instead of being silently ignored.
+def run_crew(company_name, max_retries=None, progress_cb=None):
+    """
+    progress_cb(stage: str) is called before each stage begins, so the
+    FastAPI layer can report live progress to polling clients without
+    this module knowing anything about HTTP or job queues.
+    """
     if max_retries is None:
         max_retries = DEFAULT_MAX_RETRIES
 
+    def _tick(stage):
+        if progress_cb:
+            try:
+                progress_cb(stage)
+            except Exception:  # noqa: BLE001
+                pass
+
+    _tick("searching")
     print("[crew] Searching (plain Python, no tokens spent here)...")
     search_text = _run_searches(company_name)
 
@@ -767,18 +555,15 @@ def run_crew(company_name, max_retries=None):
         saved_paths = _save_outputs(company_name, md_report, schema)
         return md_report, saved_paths
 
+    _tick("researching")
     print("[crew] Stage 1/3: research (1 flat LLM call)...")
     research_prompt = build_research_prompt(company_name, search_text)
-    # gpt-oss-120b/20b are reasoning models -- part of max_tokens goes to an
-    # internal reasoning trace before the actual JSON answer gets written.
-    # 1500 was tight enough that the model could burn the whole budget
-    # reasoning and return empty content (see agents.py's empty-completion
-    # check). 2600 gives real headroom for both.
     research_raw = call_llm_with_retry(research_prompt, system=RESEARCH_SYSTEM, max_retries=max_retries, max_tokens=2600)
     research_raw = _strip_unsupported_total_raised(research_raw, search_text)
 
     time.sleep(15)
 
+    _tick("analyzing")
     print("[crew] Stage 2/3: analysis (1 flat LLM call)...")
     analysis_prompt = build_analysis_prompt(company_name, research_raw)
     analysis_raw = call_llm_with_retry(analysis_prompt, system=ANALYSIS_SYSTEM, max_retries=max_retries, max_tokens=2600)
@@ -788,6 +573,7 @@ def run_crew(company_name, max_retries=None):
 
     time.sleep(15)
 
+    _tick("writing")
     print("[crew] Stage 3/3: writing (1 flat LLM call)...")
     writing_prompt = build_writing_prompt(company_name, analysis_raw)
     md_report = call_llm_with_retry(writing_prompt, system=WRITER_SYSTEM, max_retries=max_retries, max_tokens=2000)
@@ -804,6 +590,7 @@ def run_crew(company_name, max_retries=None):
         print("[crew] WARNING: final schema is effectively empty -- attaching diagnostics to report")
         md_report = _build_diagnostics_report(company_name, search_text, research_raw, analysis_raw, md_report)
 
+    _tick("finalizing")
     saved_paths = _save_outputs(company_name, md_report, schema)
 
     print("[crew] Saved: " + saved_paths["md"])

@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StartupScope</title>
+<style>
+:root{
+  --bg:#0D0D0D; --panel:#141414; --panel-alt:#0A0A0A;
+  --ink:#FFFFFF; --ink-dim:#BBBBBB; --ink-faint:#666666;
+  --accent:#FFFFFF; --on-accent:#000000; --hairline:#1E1E1E; --panel-border:#2A2A2A;
+}
+[data-theme="console"]{
+  --bg:#E9E7E0; --panel:#FFFFFF; --panel-alt:#DEDBD2;
+  --ink:#0A0A0A; --ink-dim:#333333; --ink-faint:#5C5C5C;
+  --accent:#0A0A0A; --on-accent:#FFFFFF; --hairline:#B8B3A8; --panel-border:#A8A297;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink-dim);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  transition:background .2s, color .2s;
+}
+.wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem 4rem}
+.header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap}
+.main-title{font-size:2.6rem;font-weight:700;color:var(--ink);letter-spacing:-0.5px;margin:0 0 .2rem}
+.subtitle{font-size:1rem;color:var(--ink-faint);margin-bottom:1.5rem}
+.theme-toggle{display:flex;gap:6px;background:var(--panel);border:1px solid var(--panel-border);border-radius:8px;padding:4px}
+.theme-toggle button{
+  border:none;background:transparent;color:var(--ink-faint);padding:.4rem 1rem;border-radius:6px;
+  cursor:pointer;font-size:.85rem;font-weight:500;
+}
+.theme-toggle button.active{background:var(--accent);color:var(--on-accent)}
+.badge-row{display:flex;gap:8px;margin:1rem 0 2rem;flex-wrap:wrap}
+.badge{background:var(--panel);border:1px solid var(--panel-border);border-radius:20px;padding:3px 12px;font-size:.75rem;color:var(--ink-faint)}
+hr.divider{border:none;border-top:1px solid var(--hairline);margin:1.5rem 0}
+.mode-row{display:flex;gap:8px;margin-bottom:1.5rem}
+.mode-btn{
+  flex:0 0 auto;background:var(--panel);border:1px solid var(--panel-border);color:var(--ink-dim);
+  padding:.55rem 1.2rem;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:500;
+}
+.mode-btn.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.examples{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem}
+.example-btn{background:var(--panel);border:1px solid var(--panel-border);color:var(--ink-dim);padding:.4rem .9rem;border-radius:8px;cursor:pointer;font-size:.82rem}
+.example-btn:hover{opacity:.8}
+label.field-label{display:block;font-size:.78rem;color:var(--ink-faint);font-weight:600;letter-spacing:.6px;text-transform:uppercase;margin-bottom:.4rem}
+input[type=text]{
+  width:100%;background:var(--panel);border:1px solid var(--panel-border);border-radius:8px;
+  color:var(--ink);font-size:1rem;padding:.75rem 1rem;
+}
+input[type=text]:focus{outline:none;border-color:var(--ink-dim)}
+.compare-row{display:flex;gap:1rem;align-items:flex-end}
+.compare-row>div{flex:1}
+.vs{font-weight:700;color:var(--ink-faint);padding-bottom:.75rem}
+.primary-btn{
+  background:var(--accent);color:var(--on-accent);border:none;border-radius:8px;font-weight:600;
+  font-size:.95rem;padding:.7rem 2rem;margin-top:1rem;cursor:pointer;
+}
+.primary-btn:disabled{background:var(--panel-border);color:var(--ink-faint);cursor:not-allowed}
+.progress-wrap{margin-top:1.5rem;display:none}
+.progress-bar-track{background:var(--panel);border:1px solid var(--panel-border);border-radius:6px;height:8px;overflow:hidden}
+.progress-bar-fill{background:var(--accent);height:100%;width:0%;transition:width .4s}
+.progress-label{margin-top:.6rem;font-weight:600;color:var(--ink)}
+.progress-caption{font-size:.8rem;color:var(--ink-faint);margin-top:.2rem}
+.result{margin-top:2rem;display:none}
+.result-actions{display:flex;gap:.6rem;margin-top:1.2rem}
+.dl-btn{background:var(--panel);color:var(--ink-dim);border:1px solid var(--panel-border);border-radius:8px;font-size:.85rem;padding:.55rem 1.2rem;cursor:pointer;text-decoration:none;display:inline-block}
+.dl-btn:hover{opacity:.85}
+.error-box{background:var(--panel);border:1px solid #7a2f2f;color:#e07a7a;border-radius:8px;padding:1rem 1.2rem;margin-top:1.5rem}
+.md-body h1{color:var(--ink);font-size:1.5rem;font-weight:700;margin-top:1.5rem}
+.md-body h2{color:var(--ink-dim);font-size:1rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-top:1.5rem;padding-bottom:.4rem;border-bottom:1px solid var(--hairline)}
+.md-body h3{color:var(--ink);font-size:.95rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-top:1.2rem}
+.md-body p,.md-body li{color:var(--ink-dim);line-height:1.7}
+.md-body strong{color:var(--ink)}
+.success-banner{color:#7fd67f;font-size:.9rem;margin-top:1rem}
+.footer-text{color:var(--hairline);font-size:.78rem;text-align:center;margin-top:3rem;letter-spacing:.5px}
+
+/* Sidebar / history */
+.layout{display:flex;gap:2rem;align-items:flex-start}
+.sidebar{width:260px;flex:0 0 260px;background:var(--panel-alt);border:1px solid var(--hairline);border-radius:10px;padding:1.2rem}
+.sidebar h3{color:var(--ink);font-size:.95rem;margin:0 0 1rem}
+.history-item{background:var(--panel);border:1px solid var(--panel-border);border-radius:8px;padding:.6rem .8rem;margin-bottom:.6rem;cursor:pointer}
+.history-item:hover{opacity:.85}
+.history-company{color:var(--ink);font-size:.85rem;font-weight:600}
+.history-time{color:var(--ink-faint);font-size:.7rem;margin-top:.1rem}
+.sidebar-btn{width:100%;background:var(--panel);color:var(--ink-dim);border:1px solid var(--panel-border);border-radius:8px;font-size:.8rem;padding:.5rem;cursor:pointer;margin-bottom:.6rem}
+.main-col{flex:1;min-width:0}
+@media (max-width:800px){.layout{flex-direction:column}.sidebar{width:100%;flex:none}}
+</style>
+</head>
+<body data-theme="brief">
+<div class="wrap">
+  <div class="layout">
+    <aside class="sidebar">
+      <h3>📜 Report History</h3>
+      <button class="sidebar-btn" id="newSearchBtn" style="display:none">🏠 New Search</button>
+      <div id="historyList"><p style="font-size:.8rem;color:var(--ink-faint)">No reports yet.</p></div>
+      <button class="sidebar-btn" id="clearHistoryBtn" style="display:none">🗑️ Clear History</button>
+    </aside>
+
+    <main class="main-col">
+      <div class="header">
+        <div>
+          <div class="main-title">StartupScope</div>
+          <div class="subtitle">AI-powered startup intelligence. Research any company in under 90 seconds.</div>
+        </div>
+        <div class="theme-toggle">
+          <button id="briefBtn" class="active">Brief</button>
+          <button id="consoleBtn">Console</button>
+        </div>
+      </div>
+
+      <div class="badge-row">
+        <span class="badge">CrewAI</span>
+        <span class="badge">LangChain</span>
+        <span class="badge">Groq · LLaMA 3.3</span>
+        <span class="badge">Live Web Search</span>
+        <span class="badge">Multi-Agent</span>
+      </div>
+      <hr class="divider" />
+
+      <div id="historyView" style="display:none">
+        <p style="font-weight:600" id="historyViewTime"></p>
+        <hr class="divider" />
+        <div class="md-body" id="historyViewContent"></div>
+        <hr class="divider" />
+        <a class="dl-btn" id="historyDownload" download>↓ Download Report (.md)</a>
+      </div>
+
+      <div id="mainView">
+        <div class="mode-row">
+          <button class="mode-btn active" id="singleModeBtn">Single Company</button>
+          <button class="mode-btn" id="compareModeBtn">Compare Two Companies</button>
+        </div>
+        <hr class="divider" />
+
+        <div id="singlePanel">
+          <p style="font-size:.8rem;color:var(--ink-faint)">Try an example</p>
+          <div class="examples">
+            <button class="example-btn" data-ex="OpenAI">OpenAI</button>
+            <button class="example-btn" data-ex="Anthropic">Anthropic</button>
+            <button class="example-btn" data-ex="Stripe">Stripe</button>
+            <button class="example-btn" data-ex="Razorpay">Razorpay</button>
+            <button class="example-btn" data-ex="Notion">Notion</button>
+          </div>
+          <label class="field-label">Company</label>
+          <input type="text" id="companyInput" placeholder="e.g. Zepto, Razorpay, Notion, OpenAI..." />
+          <button class="primary-btn" id="generateBtn" disabled>Generate Intelligence Report</button>
+
+          <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
+            <div class="progress-label" id="progressLabel"></div>
+            <div class="progress-caption" id="progressCaption"></div>
+          </div>
+
+          <div id="errorBox" class="error-box" style="display:none"></div>
+
+          <div class="result" id="resultBox">
+            <div class="success-banner" id="successBanner"></div>
+            <hr class="divider" />
+            <div class="md-body" id="resultContent"></div>
+            <div class="result-actions">
+              <a class="dl-btn" id="dlMd">↓ Download (.md)</a>
+              <a class="dl-btn" id="dlPdf">↓ Download (.pdf)</a>
+            </div>
+          </div>
+        </div>
+
+        <div id="comparePanel" style="display:none">
+          <div class="compare-row">
+            <div>
+              <label class="field-label">Company A</label>
+              <input type="text" id="companyAInput" placeholder="e.g. Razorpay" />
+            </div>
+            <div class="vs">VS</div>
+            <div>
+              <label class="field-label">Company B</label>
+              <input type="text" id="companyBInput" placeholder="e.g. Paytm" />
+            </div>
+          </div>
+          <button class="primary-btn" id="compareBtn" disabled>Compare Both Companies</button>
+          <div id="compareStatus" style="margin-top:1rem"></div>
+          <div class="result" id="compareResultBox">
+            <div class="md-body" id="compareContent"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-text">STARTUPSCOPE &nbsp;·&nbsp; CREWAI &nbsp;·&nbsp; GROQ &nbsp;·&nbsp; FASTAPI</div>
+    </main>
+  </div>
+</div>
+
+<script>
+// ── Tiny markdown -> HTML renderer (headings, bold, lists, hr, paragraphs) ──
+function renderMarkdown(md) {
+  const lines = md.split("\n");
+  let html = "";
+  let inList = false;
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  for (let raw of lines) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+    if (line === "---") { closeList(); html += "<hr class='divider'>"; continue; }
+    if (line.startsWith("## ")) { closeList(); html += `<h2>${esc(line.slice(3))}</h2>`; continue; }
+    if (line.startsWith("# ")) { closeList(); html += `<h1>${esc(line.slice(2))}</h1>`; continue; }
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      html += `<li>${inlineMd(line.slice(2))}</li>`;
+      continue;
+    }
+    closeList();
+    html += `<p>${inlineMd(line)}</p>`;
+  }
+  closeList();
+  return html;
+}
+function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function inlineMd(s){
+  s = esc(s);
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  return s;
+}
+
+// ── Theme toggle ──
+const briefBtn = document.getElementById("briefBtn");
+const consoleBtn = document.getElementById("consoleBtn");
+function setTheme(mode){
+  document.body.dataset.theme = mode;
+  briefBtn.classList.toggle("active", mode === "brief");
+  consoleBtn.classList.toggle("active", mode === "console");
+}
+briefBtn.onclick = () => setTheme("brief");
+consoleBtn.onclick = () => setTheme("console");
+
+// ── Mode toggle ──
+const singleModeBtn = document.getElementById("singleModeBtn");
+const compareModeBtn = document.getElementById("compareModeBtn");
+const singlePanel = document.getElementById("singlePanel");
+const comparePanel = document.getElementById("comparePanel");
+singleModeBtn.onclick = () => {
+  singleModeBtn.classList.add("active"); compareModeBtn.classList.remove("active");
+  singlePanel.style.display = "block"; comparePanel.style.display = "none";
+};
+compareModeBtn.onclick = () => {
+  compareModeBtn.classList.add("active"); singleModeBtn.classList.remove("active");
+  comparePanel.style.display = "block"; singlePanel.style.display = "none";
+};
+
+// ── Examples ──
+const companyInput = document.getElementById("companyInput");
+const generateBtn = document.getElementById("generateBtn");
+document.querySelectorAll(".example-btn").forEach(btn => {
+  btn.onclick = () => { companyInput.value = btn.dataset.ex; generateBtn.disabled = false; };
+});
+companyInput.addEventListener("input", () => { generateBtn.disabled = !companyInput.value.trim(); });
+
+// ── Single-company run with polling ──
+const progressWrap = document.getElementById("progressWrap");
+const progressFill = document.getElementById("progressFill");
+const progressLabel = document.getElementById("progressLabel");
+const progressCaption = document.getElementById("progressCaption");
+const errorBox = document.getElementById("errorBox");
+const resultBox = document.getElementById("resultBox");
+const resultContent = document.getElementById("resultContent");
+const successBanner = document.getElementById("successBanner");
+const dlMd = document.getElementById("dlMd");
+const dlPdf = document.getElementById("dlPdf");
+
+async function runReport(company, onDone) {
+  errorBox.style.display = "none";
+  resultBox.style.display = "none";
+  progressWrap.style.display = "block";
+  progressFill.style.width = "0%";
+
+  const startRes = await fetch("/api/run", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({company})
+  });
+  if (!startRes.ok) { showError((await startRes.json()).detail || "Failed to start job"); return; }
+  const {job_id} = await startRes.json();
+
+  return new Promise((resolve) => {
+    const poll = setInterval(async () => {
+      const r = await fetch(`/api/status/${job_id}`);
+      const data = await r.json();
+      progressFill.style.width = `${Math.round(data.progress * 100)}%`;
+      progressLabel.textContent = data.stage_label || "Working...";
+      progressCaption.textContent = `${data.elapsed}s elapsed...`;
+
+      if (data.status === "done") {
+        clearInterval(poll);
+        progressWrap.style.display = "none";
+        resolve({job_id, result: data.result, elapsed: data.elapsed, company: data.company});
+      } else if (data.status === "error") {
+        clearInterval(poll);
+        progressWrap.style.display = "none";
+        showError(data.error);
+        resolve(null);
+      }
+    }, 800);
+  });
+}
+
+function showError(msg){
+  errorBox.style.display = "block";
+  errorBox.textContent = "Something went wrong: " + msg;
+}
+
+generateBtn.onclick = async () => {
+  const company = companyInput.value.trim();
+  if (!company) return;
+  generateBtn.disabled = true;
+  const outcome = await runReport(company);
+  generateBtn.disabled = false;
+  if (!outcome) return;
+
+  successBanner.textContent = `✅ Report complete · generated in ${outcome.elapsed}s`;
+  resultContent.innerHTML = renderMarkdown(outcome.result);
+  resultBox.style.display = "block";
+  dlMd.href = `/api/download/${outcome.job_id}.md`;
+  dlMd.download = `${company.toLowerCase().replace(/ /g,"_")}_report.md`;
+  dlPdf.href = `/api/download/${outcome.job_id}.pdf`;
+  dlPdf.download = `${company.toLowerCase().replace(/ /g,"_")}_report.pdf`;
+  loadHistory();
+};
+
+// ── Compare mode ──
+const companyAInput = document.getElementById("companyAInput");
+const companyBInput = document.getElementById("companyBInput");
+const compareBtn = document.getElementById("compareBtn");
+const compareStatus = document.getElementById("compareStatus");
+const compareResultBox = document.getElementById("compareResultBox");
+const compareContent = document.getElementById("compareContent");
+
+function checkCompareReady(){
+  compareBtn.disabled = !(companyAInput.value.trim() && companyBInput.value.trim());
+}
+companyAInput.addEventListener("input", checkCompareReady);
+companyBInput.addEventListener("input", checkCompareReady);
+
+compareBtn.onclick = async () => {
+  const a = companyAInput.value.trim(), b = companyBInput.value.trim();
+  compareBtn.disabled = true;
+  compareResultBox.style.display = "none";
+  compareStatus.innerHTML = `<p>Researching ${esc(a)}...</p>`;
+
+  const resA = await runReportSilent(a);
+  if (!resA) { compareStatus.innerHTML += `<p style="color:#e07a7a">${esc(a)} failed.</p>`; compareBtn.disabled = false; return; }
+  compareStatus.innerHTML += `<p>✅ ${esc(a)} done</p><p>Researching ${esc(b)}...</p>`;
+
+  const resB = await runReportSilent(b);
+  if (!resB) { compareStatus.innerHTML += `<p style="color:#e07a7a">${esc(b)} failed.</p>`; compareBtn.disabled = false; return; }
+  compareStatus.innerHTML += `<p>✅ ${esc(b)} done</p>`;
+
+  const combined = `# Comparison: ${a} vs ${b}\n\n---\n\n## ${a}\n\n${resA.result}\n\n---\n\n## ${b}\n\n${resB.result}`;
+  compareContent.innerHTML = renderMarkdown(combined);
+  compareResultBox.style.display = "block";
+  compareBtn.disabled = false;
+  loadHistory();
+};
+
+async function runReportSilent(company){
+  const startRes = await fetch("/api/run", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({company})
+  });
+  if (!startRes.ok) return null;
+  const {job_id} = await startRes.json();
+  return new Promise((resolve) => {
+    const poll = setInterval(async () => {
+      const r = await fetch(`/api/status/${job_id}`);
+      const data = await r.json();
+      if (data.status === "done") { clearInterval(poll); resolve({job_id, result: data.result}); }
+      else if (data.status === "error") { clearInterval(poll); resolve(null); }
+    }, 800);
+  });
+}
+
+// ── History sidebar ──
+const historyList = document.getElementById("historyList");
+const newSearchBtn = document.getElementById("newSearchBtn");
+const clearHistoryBtn = document.getElementById("clearHistoryBtn");
+const historyView = document.getElementById("historyView");
+const mainView = document.getElementById("mainView");
+const historyViewTime = document.getElementById("historyViewTime");
+const historyViewContent = document.getElementById("historyViewContent");
+const historyDownload = document.getElementById("historyDownload");
+
+async function loadHistory(){
+  const res = await fetch("/api/history");
+  const items = await res.json();
+  if (!items.length){
+    historyList.innerHTML = `<p style="font-size:.8rem;color:var(--ink-faint)">No reports generated yet.</p>`;
+    newSearchBtn.style.display = "none";
+    clearHistoryBtn.style.display = "none";
+    return;
+  }
+  newSearchBtn.style.display = "block";
+  clearHistoryBtn.style.display = "block";
+  historyList.innerHTML = items.map(e => `
+    <div class="history-item" data-id="${e.id}">
+      <div class="history-company">${esc(e.label)}</div>
+      <div class="history-time">${e.mode === "compare" ? "⚡ Compare" : "🔍 Single"} · ${esc(e.display_time)}</div>
+    </div>`).join("");
+  document.querySelectorAll(".history-item").forEach(el => {
+    el.onclick = () => viewHistoryEntry(el.dataset.id, items);
+  });
+}
+
+function viewHistoryEntry(id, items){
+  const entry = items.find(e => e.id === id);
+  if (!entry) return;
+  mainView.style.display = "none";
+  historyView.style.display = "block";
+  historyViewTime.textContent = "Viewing saved report · " + entry.display_time;
+  historyViewContent.innerHTML = renderMarkdown(entry.content);
+  const blob = new Blob([entry.content], {type: "text/markdown"});
+  historyDownload.href = URL.createObjectURL(blob);
+  historyDownload.download = `${entry.company.toLowerCase().replace(/ /g,"_")}_report.md`;
+}
+
+newSearchBtn.onclick = () => { historyView.style.display = "none"; mainView.style.display = "block"; };
+clearHistoryBtn.onclick = async () => {
+  await fetch("/api/history", {method: "DELETE"});
+  loadHistory();
+};
+
+loadHistory();
+</script>
+</body>
+</html>
