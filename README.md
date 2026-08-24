@@ -25,7 +25,7 @@ A multi-agent research tool that automatically researches any startup or company
 
 ## 📑 Table of Contents
 
-- [Screenshot — Compare Mode](#-screenshot--compare-mode)
+- [Screenshot — Compare Mode](#️-screenshot--compare-mode)
 - [Full Walkthrough](#-full-walkthrough)
 - [Known Limitations](#known-limitations)
 - [What It Does](#what-it-does)
@@ -45,15 +45,7 @@ A multi-agent research tool that automatically researches any startup or company
 
 ---
 
-## 📸 Screenshot — Compare Mode
-
-![StartupScope comparing two companies side-by-side](./assets/demo-compare.png)
-
-*Real output from Compare Mode — two intelligence reports generated and rendered side-by-side in a single run.*
-
----
-
-## 🖼️ Compare Mode — Updated Side-by-Side Layout
+## 🖼️ Screenshot — Compare Mode
 
 ![StartupScope Compare Mode, Notion vs Razorpay, fully populated side-by-side reports](./assets/demo-compare-sidebyside.png)
 
