@@ -91,6 +91,12 @@ input[type=text]:focus{outline:none;border-color:var(--ink-dim)}
 .sidebar-btn{width:100%;background:var(--panel);color:var(--ink-dim);border:1px solid var(--panel-border);border-radius:8px;font-size:.8rem;padding:.5rem;cursor:pointer;margin-bottom:.6rem}
 .main-col{flex:1;min-width:0}
 @media (max-width:800px){.layout{flex-direction:column}.sidebar{width:100%;flex:none}}
+
+/* Compare mode — side-by-side columns */
+.compare-grid{display:flex;gap:1.5rem;align-items:flex-start}
+.compare-col{flex:1;min-width:0;background:var(--panel-alt);border:1px solid var(--hairline);border-radius:10px;padding:1.2rem}
+.compare-col-title{color:var(--ink);font-size:1.1rem;font-weight:700;margin:0 0 .8rem;padding-bottom:.6rem;border-bottom:1px solid var(--hairline)}
+@media (max-width:800px){.compare-grid{flex-direction:column}}
 </style>
 </head>
 <body data-theme="brief">
@@ -185,7 +191,16 @@ input[type=text]:focus{outline:none;border-color:var(--ink-dim)}
           <button class="primary-btn" id="compareBtn" disabled>Compare Both Companies</button>
           <div id="compareStatus" style="margin-top:1rem"></div>
           <div class="result" id="compareResultBox">
-            <div class="md-body" id="compareContent"></div>
+            <div class="compare-grid">
+              <div class="compare-col">
+                <div class="compare-col-title" id="compareColATitle"></div>
+                <div class="md-body" id="compareContentA"></div>
+              </div>
+              <div class="compare-col">
+                <div class="compare-col-title" id="compareColBTitle"></div>
+                <div class="md-body" id="compareContentB"></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -366,7 +381,10 @@ const companyBInput = document.getElementById("companyBInput");
 const compareBtn = document.getElementById("compareBtn");
 const compareStatus = document.getElementById("compareStatus");
 const compareResultBox = document.getElementById("compareResultBox");
-const compareContent = document.getElementById("compareContent");
+const compareContentA = document.getElementById("compareContentA");
+const compareContentB = document.getElementById("compareContentB");
+const compareColATitle = document.getElementById("compareColATitle");
+const compareColBTitle = document.getElementById("compareColBTitle");
 
 function checkCompareReady(){
   compareBtn.disabled = !(companyAInput.value.trim() && companyBInput.value.trim());
@@ -388,8 +406,10 @@ compareBtn.onclick = async () => {
   if (!resB) { compareStatus.innerHTML += `<p style="color:#e07a7a">${esc(b)} failed.</p>`; compareBtn.disabled = false; return; }
   compareStatus.innerHTML += `<p>✅ ${esc(b)} done</p>`;
 
-  const combined = `# Comparison: ${a} vs ${b}\n\n---\n\n## ${a}\n\n${resA.result}\n\n---\n\n## ${b}\n\n${resB.result}`;
-  compareContent.innerHTML = renderMarkdown(combined);
+  compareColATitle.textContent = a;
+  compareColBTitle.textContent = b;
+  compareContentA.innerHTML = renderMarkdown(resA.result);
+  compareContentB.innerHTML = renderMarkdown(resB.result);
   compareResultBox.style.display = "block";
   compareBtn.disabled = false;
   loadHistory();
