@@ -51,6 +51,14 @@ A multi-agent research tool that automatically researches any startup or company
 
 ---
 
+## 🖼️ Compare Mode — Updated Side-by-Side Layout
+
+![StartupScope Compare Mode, Notion vs Razorpay, fully populated side-by-side reports](./assets/demo-compare-sidebyside.png)
+
+*Notion vs Razorpay — both reports fully populated across every field, rendered in independent columns.*
+
+---
+
 ## 🎬 Full Walkthrough
 
 https://github.com/user-attachments/assets/bb52f74e-5154-4d1f-8fa2-8cdf1db6ce4f
