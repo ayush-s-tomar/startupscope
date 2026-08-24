@@ -56,9 +56,10 @@ def _run_searches(company_name):
     queries = [
         company_name + " funding investors business model",
         company_name + " competitors news 2024 2025",
-        company_name + " founded headquarters employees team size",
+        company_name + " wikipedia founded headquarters employees",
         company_name + " total funding raised to date valuation",
         company_name + " technology stack product features platform",
+        company_name + " official website about company",
     ]
     results = []
     for q in queries:

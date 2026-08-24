@@ -76,7 +76,7 @@ def _search_serper(query):
     # still keeping total search text small (this is Python-side, not an
     # LLM call, so it costs no tokens directly -- it only matters for how
     # much text ends up pasted into the research prompt).
-    payload = {"q": query, "num": 5}
+    payload = {"q": query, "num": 7}
 
     response = requests.post(
         "https://google.serper.dev/search",
