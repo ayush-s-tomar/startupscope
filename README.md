@@ -4,6 +4,8 @@
 
 ### AI-Powered Startup Intelligence Tool
 
+> **TL;DR:** Type a company name, get a full VC-style intelligence report in ~90s — 3 AI agents research, analyze, and write it, with live progress, side-by-side comparisons, and PDF export.
+
 A multi-agent research tool that automatically researches any startup or company and generates a structured intelligence report — covering funding, business model, competitors, strengths, risks, and recent news.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://startupscope-q76d.onrender.com/)
