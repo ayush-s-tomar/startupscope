@@ -15,7 +15,7 @@ A multi-agent research tool that automatically researches any startup or company
 [![CrewAI](https://img.shields.io/badge/Agents-CrewAI-6E56CF?style=for-the-badge)](https://www.crewai.com/)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20gpt--oss-F55036?style=for-the-badge)](https://groq.com/)
 
-![StartupScope demo](./assets/demo.gif)
+![StartupScope generating a live intelligence report with real-time agent progress](./assets/demo.gif)
 
 **👉 [Try it live](https://startupscope-q76d.onrender.com/)**
 
@@ -27,7 +27,6 @@ A multi-agent research tool that automatically researches any startup or company
 
 - [Screenshot — Compare Mode](#️-screenshot--compare-mode)
 - [Full Walkthrough](#-full-walkthrough)
-- [Known Limitations](#known-limitations)
 - [What It Does](#what-it-does)
 - [Features](#features)
 - [Sample Output](#-sample-output)
@@ -38,7 +37,7 @@ A multi-agent research tool that automatically researches any startup or company
 - [How to Use](#how-to-use)
 - [Deploy to Render](#deploy-to-render)
 - [CI/CD](#cicd)
-- [Data Quality Notes](#data-quality-notes)
+- [Known Limitations & Data Quality](#known-limitations--data-quality)
 - [What I'd Add Next](#what-id-add-next)
 - [What I Learned](#what-i-learned)
 - [License](#license)
@@ -58,14 +57,6 @@ A multi-agent research tool that automatically researches any startup or company
 https://github.com/user-attachments/assets/bb52f74e-5154-4d1f-8fa2-8cdf1db6ce4f
 
 *Click to play — full walkthrough of single-company research and side-by-side comparison.*
-
----
-
-## Known limitations
-
-- **In-memory job store** — an in-flight report is lost if the Render service restarts mid-run. Fine at this scale (single-process, free-tier deployment), but not durable across restarts — see "What I'd add next."
-- **Ephemeral storage on Render's free tier** — report history and `outputs/` reset on redeploy/restart.
-- **Free-tier cold starts** — the service spins down on inactivity, so the first request after idle can take 30–50s.
 
 ---
 
@@ -289,8 +280,14 @@ See the live status badge at the top of this README, or check the [Actions tab](
 
 ---
 
-## Data Quality Notes
+## Known Limitations & Data Quality
 
+**System limitations:**
+- **In-memory job store** — an in-flight report is lost if the Render service restarts mid-run. Fine at this scale (single-process, free-tier deployment), but not durable across restarts — see [What I'd add next](#what-id-add-next).
+- **Ephemeral storage on Render's free tier** — report history and `outputs/` reset on redeploy/restart.
+- **Free-tier cold starts** — the service spins down on inactivity, so the first request after idle can take 30–50s.
+
+**Data quality:**
 - Some fields (founding year, HQ, exact funding totals) come back as "Not specified" for companies that don't publicly disclose this data or where search results are sparse — the agents are instructed to never invent figures, so an honest gap is shown instead of a guess
 - Report quality depends on Serper/DuckDuckGo result freshness; very recent funding rounds or news may not surface immediately
 - Free-tier Groq and Serper rate limits mean heavy back-to-back usage can trigger the retry/backoff logic, slightly increasing response time
@@ -328,5 +325,6 @@ Distributed under the **MIT License**. See [`LICENSE`](./LICENSE) for the full t
 <div align="center">
 
 Built by **[Ayush Singh Tomar](https://github.com/ayush-s-tomar)**
+[LinkedIn](https://www.linkedin.com/in/ayushsinghtomar) · [Portfolio](https://ayush-s-tomar.vercel.app)
 
 </div>
