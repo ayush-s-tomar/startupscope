@@ -38,7 +38,7 @@ A multi-agent research tool that automatically researches any startup or company
 - [Deploy to Render](#deploy-to-render)
 - [CI/CD](#cicd)
 - [Known Limitations & Data Quality](#known-limitations--data-quality)
-- [What I'd Add Next](#what-id-add-next)
+- [Roadmap](#roadmap)
 - [What I Learned](#what-i-learned)
 - [License](#license)
 
@@ -162,26 +162,26 @@ Each stage runs as a single flat LLM call rather than an agent loop, keeping tok
 
 ```
 startupscope/
-├── app.py                    # FastAPI app — job API (/api/run, /api/status, /api/history, /api/download), serves static/
-├── main.py                   # Terminal runner — single company or CSV batch mode
-├── history.py                 # Report history persistence (load/add/clear)
-├── requirements.txt           # Python dependencies
-├── render.yaml                 # Render service config (build/start commands, env vars, health check)
-├── .env                        # API keys (not committed)
+├── app.py              # FastAPI app — job API (/api/run, /api/status, /api/history, /api/download), serves static/
+├── main.py              # Terminal runner — single company or CSV batch mode
+├── history.py            # Report history persistence (load/add/clear)
+├── requirements.txt       # Python dependencies
+├── render.yaml             # Render service config (build/start commands, env vars, health check)
+├── .env                     # API keys (not committed)
 ├── .gitignore
 ├── crew/
-│   ├── agents.py               # LLM call wrapper — retry/backoff, primary/fallback model, empty-completion guard
-│   ├── tasks.py                # Prompt builders for research/analysis/writer stages
-│   └── crew.py                  # Pipeline orchestration, fact-checking guards, progress callback
+│   ├── agents.py          # LLM call wrapper — retry/backoff, primary/fallback model, empty-completion guard
+│   ├── tasks.py            # Prompt builders for research/analysis/writer stages
+│   └── crew.py              # Pipeline orchestration, fact-checking guards, progress callback
 ├── tools/
-│   └── search_tool.py          # Serper + DuckDuckGo fallback, credibility scoring
+│   └── search_tool.py      # Serper + DuckDuckGo fallback, credibility scoring
 ├── static/
-│   └── index.html               # Full frontend — UI, custom markdown-to-HTML renderer, theme toggle, polling logic
-├── assets/                     # README media (gif, screenshot)
+│   └── index.html           # Full frontend — UI, custom markdown-to-HTML renderer, theme toggle, polling logic
+├── assets/                 # README media (gif, screenshot)
 ├── .github/
 │   └── workflows/
-│       └── ci.yml               # Lint + smoke-test on every push/PR
-└── outputs/                     # Generated .md and .json reports saved here
+│       └── ci.yml           # Lint + smoke-test on every push/PR
+└── outputs/                 # Generated .md and .json reports saved here
 ```
 
 ---
@@ -283,7 +283,7 @@ See the live status badge at the top of this README, or check the [Actions tab](
 ## Known Limitations & Data Quality
 
 **System limitations:**
-- **In-memory job store** — an in-flight report is lost if the Render service restarts mid-run. Fine at this scale (single-process, free-tier deployment), but not durable across restarts — see [What I'd add next](#what-id-add-next).
+- **In-memory job store** — an in-flight report is lost if the Render service restarts mid-run. Fine at this scale (single-process, free-tier deployment), but not durable across restarts — see [Roadmap](#roadmap).
 - **Ephemeral storage on Render's free tier** — report history and `outputs/` reset on redeploy/restart.
 - **Free-tier cold starts** — the service spins down on inactivity, so the first request after idle can take 30–50s.
 
@@ -294,12 +294,12 @@ See the live status badge at the top of this README, or check the [Actions tab](
 
 ---
 
-## What I'd add next
+## Roadmap
 
-- Persistent job/history store (Postgres or Redis) instead of in-memory, so a Render restart can't lose an in-flight report
-- Server-sent events or WebSocket push instead of client polling for progress updates
-- A second, independent LLM-as-judge pass to catch fact-guard misses the regex-based scrubs don't cover
-- Automated eval harness (sample company set + expected-field checks) wired into CI
+- [ ] Persistent job/history store (Postgres or Redis) instead of in-memory, so a Render restart can't lose an in-flight report
+- [ ] Server-sent events or WebSocket push instead of client polling for progress updates
+- [ ] A second, independent LLM-as-judge pass to catch fact-guard misses the regex-based scrubs don't cover
+- [ ] Automated eval harness (sample company set + expected-field checks) wired into CI
 
 ---
 
